@@ -27,18 +27,20 @@ class AnswerGenerator:
         except Exception as e:
             raise Exception(f"Ollama error: {e}. Make sure Ollama is installed and running!")
 
-    def _generate_with_groq(self, system_prompt: str, user_prompt: str) -> str:
-        api_key = os.getenv("GROQ_API_KEY")
+    def _generate_with_openrouter(self, system_prompt: str, user_prompt: str) -> str:
+        api_key = os.getenv("OPENROUTER_API_KEY")
         if not api_key:
-            raise ValueError("GROQ_API_KEY environment variable is missing.")
+            raise ValueError("OPENROUTER_API_KEY environment variable is missing.")
             
-        url = "https://api.groq.com/openai/v1/chat/completions"
+        url = "https://openrouter.ai/api/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "HTTP-Referer": "http://localhost:8501", # Optional, for OpenRouter rankings
+            "X-Title": "Personal RAG Assistant" # Optional, for OpenRouter rankings
         }
         payload = {
-            "model": "llama-3.1-8b-instant",
+            "model": "meta-llama/llama-3.1-8b-instruct:free",
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -52,7 +54,7 @@ class AnswerGenerator:
             response.raise_for_status()
             return response.json()["choices"][0]["message"]["content"]
         except Exception as e:
-            raise Exception(f"Groq API error: {e}")
+            raise Exception(f"OpenRouter API error: {e}")
 
     def generate_answer(self, query: str, context_chunks: list[dict]) -> str:
         """
@@ -120,7 +122,7 @@ Remember: If the answer is not in the Context Documents above, say "I could not 
                 full_prompt = system_prompt + "\n\n" + user_prompt
                 answer = self._generate_with_ollama(full_prompt)
             else:
-                answer = self._generate_with_groq(system_prompt, user_prompt)
+                answer = self._generate_with_openrouter(system_prompt, user_prompt)
                 
             if not answer:
                 return fallback_response
