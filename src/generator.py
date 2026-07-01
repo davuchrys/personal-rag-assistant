@@ -40,7 +40,7 @@ class AnswerGenerator:
             "X-Title": "Personal RAG Assistant" # Optional, for OpenRouter rankings
         }
         payload = {
-            "model": "meta-llama/llama-3.1-8b-instruct:free",
+            "model": "meta-llama/llama-3-8b-instruct:free",
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
