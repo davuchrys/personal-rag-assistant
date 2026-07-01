@@ -1,6 +1,7 @@
 import os
 import json
 import uuid
+import hashlib
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -24,18 +25,71 @@ def format_confidence(distance: float):
 # --- Setup ---
 st.set_page_config(page_title="RAG Assistant", page_icon="📎", layout="wide")
 
+USERS_FILE = "data/users.json"
+os.makedirs("data", exist_ok=True)
+
+def _load_users():
+    if os.path.exists(USERS_FILE):
+        with open(USERS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def _save_users(users):
+    with open(USERS_FILE, "w", encoding="utf-8") as f:
+        json.dump(users, f, ensure_ascii=False, indent=2)
+
+def _hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
 if "username" not in st.session_state or not st.session_state.username:
     st.markdown("<h2 style='text-align: center; margin-top: 5rem;'>Welcome to RAG Assistant</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #666;'>Please enter your username to access your private workspace.</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #666;'>Sign up or log in to access your private workspace.</p>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
-        with st.form("login_form"):
-            username_input = st.text_input("Username")
-            submit = st.form_submit_button("Enter Workspace", use_container_width=True, type="primary")
-            if submit and username_input.strip():
-                st.session_state.username = username_input.strip()
-                st.rerun()
+        tab_login, tab_signup = st.tabs(["Login", "Sign Up"])
+        
+        with tab_login:
+            with st.form("login_form"):
+                login_user = st.text_input("Username", key="login_user")
+                login_pass = st.text_input("Password", type="password", key="login_pass")
+                login_submit = st.form_submit_button("Login", use_container_width=True, type="primary")
+                if login_submit:
+                    u = login_user.strip()
+                    if not u or not login_pass:
+                        st.error("Please enter both username and password.")
+                    else:
+                        users = _load_users()
+                        if u not in users or users[u] != _hash_password(login_pass):
+                            st.error("Invalid username or password.")
+                        else:
+                            st.session_state.username = u
+                            st.rerun()
+        
+        with tab_signup:
+            with st.form("signup_form"):
+                signup_user = st.text_input("Choose a Username", key="signup_user")
+                signup_pass = st.text_input("Choose a Password", type="password", key="signup_pass")
+                signup_pass2 = st.text_input("Confirm Password", type="password", key="signup_pass2")
+                signup_submit = st.form_submit_button("Create Account", use_container_width=True, type="primary")
+                if signup_submit:
+                    u = signup_user.strip()
+                    if not u or not signup_pass:
+                        st.error("Please fill in all fields.")
+                    elif len(signup_pass) < 4:
+                        st.error("Password must be at least 4 characters.")
+                    elif signup_pass != signup_pass2:
+                        st.error("Passwords do not match.")
+                    else:
+                        users = _load_users()
+                        if u in users:
+                            st.error("Username already taken. Please choose another.")
+                        else:
+                            users[u] = _hash_password(signup_pass)
+                            _save_users(users)
+                            st.session_state.username = u
+                            st.success("Account created! Logging you in...")
+                            st.rerun()
     st.stop()
 
 USERNAME = st.session_state.username
@@ -302,7 +356,7 @@ with st.sidebar:
         st.markdown('<div class="sidebar-section" style="margin-top:0.5rem;">Search Strictness</div>', unsafe_allow_html=True)
         distance_threshold = st.slider(
             "Threshold", 
-            min_value=0.1, max_value=2.0, value=1.0, step=0.1,
+            min_value=0.1, max_value=2.0, value=0.7, step=0.1,
             help="Lower = stricter matching. Higher = more lenient."
         )
         debug_mode = st.toggle("Show retrieved chunks", help="Displays the exact text chunks used to answer.")

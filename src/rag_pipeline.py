@@ -86,11 +86,11 @@ class RAGPipeline:
         except Exception:
             pass
 
-    def ask(self, query: str, top_k: int = 5, distance_threshold: float = 1.0) -> dict:
+    def ask(self, query: str, top_k: int = 5, distance_threshold: float = 0.7) -> dict:
         """
         Retrieves relevant context and generates an answer.
-        distance_threshold of 1.0 is a reasonable default for cosine distance 
-        (values closer to 0 are better).
+        distance_threshold of 0.7 is a strict default for cosine distance 
+        (values closer to 0 are better). Chunks above this are discarded.
         Returns the answer and the retrieved chunks used for context.
         """
         # 0. Handle casual / conversational messages without hitting retrieval

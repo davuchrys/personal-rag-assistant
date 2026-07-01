@@ -27,7 +27,7 @@ class AnswerGenerator:
         except Exception as e:
             raise Exception(f"Ollama error: {e}. Make sure Ollama is installed and running!")
 
-    def _generate_with_groq(self, prompt: str) -> str:
+    def _generate_with_groq(self, system_prompt: str, user_prompt: str) -> str:
         api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
             raise ValueError("GROQ_API_KEY environment variable is missing.")
@@ -39,7 +39,10 @@ class AnswerGenerator:
         }
         payload = {
             "model": "llama-3.1-8b-instant",
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
             "temperature": 0.0
         }
         try:
@@ -55,10 +58,17 @@ class AnswerGenerator:
         """
         Generates an answer from the context chunks.
         If no chunks are provided, returns the fallback response.
+        Includes a quality gate to reject low-relevance chunks.
         """
         fallback_response = "I could not find enough information in the uploaded documents."
         
         if not context_chunks:
+            return fallback_response
+        
+        # QUALITY GATE: If the best chunk is still too distant, refuse to answer.
+        # This prevents the LLM from trying to answer with irrelevant context.
+        best_distance = min(c.get("distance", 999) for c in context_chunks)
+        if best_distance > 0.75:
             return fallback_response
             
         # Build the context string
@@ -68,22 +78,31 @@ class AnswerGenerator:
             text = chunk['text']
             context_text += f"\n--- Source {i+1}: {filename} ---\n{text}\n"
 
-        prompt = f"""You are a helpful personal assistant answering questions strictly based on the provided context documents.
+        system_prompt = """You are a strict document-grounded assistant. You MUST follow these rules with ZERO exceptions:
 
-Context Documents:
+RULE 1 — ONLY USE THE CONTEXT BELOW.
+You may ONLY use information that is explicitly stated in the Context Documents provided by the user. Do NOT use your own training data, general knowledge, or common sense to fill in gaps.
+
+RULE 2 — NEVER INVENT OR ASSUME.
+If a fact, number, name, date, or detail is NOT explicitly written in the Context Documents, you MUST NOT mention it, guess it, or infer it. Do not say "likely", "probably", or "it is possible".
+
+RULE 3 — ADMIT WHEN YOU DON'T KNOW.
+If the Context Documents do not contain enough information to fully answer the question, you MUST respond with EXACTLY this sentence and nothing else:
+"I could not find enough information in the uploaded documents."
+
+RULE 4 — NO SOURCE FILENAMES.
+Do NOT mention source filenames in your answer. Sources are displayed separately by the app.
+
+RULE 5 — BE CLEAR AND NATURAL.
+When the context DOES contain the answer, write a clear, well-structured response as if explaining to a person."""
+
+        user_prompt = f"""Context Documents:
 {context_text}
 
 Question:
 {query}
 
-Instructions:
-1. Answer the question using ONLY the information from the Context Documents above.
-2. Do NOT include source filenames in your answer. Sources are displayed separately.
-3. Write clear, natural answers as if you are explaining to a person.
-4. If the Context Documents do not contain enough information or are unrelated to the question, you MUST return EXACTLY this sentence:
-"I could not find enough information in the uploaded documents."
-Do not add anything else if the information is missing.
-"""
+Remember: If the answer is not in the Context Documents above, say "I could not find enough information in the uploaded documents." — do NOT make anything up."""
         
         try:
             from dotenv import dotenv_values
@@ -92,9 +111,11 @@ Do not add anything else if the information is missing.
             use_ollama = str(use_ollama_str).strip().lower() == "true"
             
             if use_ollama:
-                answer = self._generate_with_ollama(prompt)
+                # Ollama uses a single prompt, so combine system + user
+                full_prompt = system_prompt + "\n\n" + user_prompt
+                answer = self._generate_with_ollama(full_prompt)
             else:
-                answer = self._generate_with_groq(prompt)
+                answer = self._generate_with_groq(system_prompt, user_prompt)
                 
             if not answer:
                 return fallback_response
@@ -103,3 +124,4 @@ Do not add anything else if the information is missing.
         except Exception as e:
             print(f"Error during generation: {e}")
             return f"An error occurred while generating the answer: {e}"
+
