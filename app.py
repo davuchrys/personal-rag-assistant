@@ -68,8 +68,8 @@ if "username" not in st.session_state or not st.session_state.username:
         
         with tab_signup:
             with st.form("signup_form"):
-                signup_user = st.text_input("Choose a Username", key="signup_user")
-                signup_pass = st.text_input("Choose a Password", type="password", key="signup_pass")
+                signup_user = st.text_input("Username", key="signup_user")
+                signup_pass = st.text_input("Password", type="password", key="signup_pass")
                 signup_pass2 = st.text_input("Confirm Password", type="password", key="signup_pass2")
                 signup_submit = st.form_submit_button("Create Account", use_container_width=True, type="primary")
                 if signup_submit:
