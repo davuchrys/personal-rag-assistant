@@ -150,7 +150,14 @@ st.markdown("""
 
 # --- Sidebar ---
 with st.sidebar:
-    st.markdown('<div class="sidebar-section">Documents</div>', unsafe_allow_html=True)
+    # New Chat Button
+    if st.button("➕ New Chat", use_container_width=True, type="primary"):
+        st.session_state.messages = []
+        st.rerun()
+        
+    st.divider()
+    
+    st.markdown('<div class="sidebar-section">📁 Document Workspace</div>', unsafe_allow_html=True)
     
     uploaded_files = st.file_uploader(
         "Add files", 
@@ -163,7 +170,7 @@ with st.sidebar:
         for f in uploaded_files:
             st.markdown(f'<div class="file-item">📄 {f.name}</div>', unsafe_allow_html=True)
         
-        if st.button("Index Documents", type="primary", use_container_width=True):
+        if st.button("Index Documents", use_container_width=True):
             file_paths = []
             for file in uploaded_files:
                 file_path = os.path.join("data", file.name)
@@ -182,21 +189,22 @@ with st.sidebar:
         for fname in indexed_files_db:
             st.markdown(f'<div class="file-item" style="border-left: 3px solid #4caf50;">✓ {fname}</div>', unsafe_allow_html=True)
             
-        st.markdown('<div class="sidebar-section" style="margin-top: 1rem;">Management</div>', unsafe_allow_html=True)
-        if st.button("Clear Indexed Documents", type="secondary"):
+        if st.button("🗑️ Clear Indexed Data", use_container_width=True):
             pipeline.clear_index()
             st.success("✅ Index cleared. You can now upload new documents.")
             st.session_state.messages = []
             st.rerun()
     
     st.divider()
-    st.markdown('<div class="sidebar-section">Search Settings</div>', unsafe_allow_html=True)
-    distance_threshold = st.slider(
-        "Strictness", 
-        min_value=0.1, max_value=2.0, value=1.0, step=0.1,
-        help="Lower = stricter matching. Higher = more lenient."
-    )
-    debug_mode = st.toggle("Show retrieved chunks")
+    
+    with st.expander("⚙️ Advanced Settings"):
+        st.markdown('<div class="sidebar-section" style="margin-top:0.5rem;">Search Strictness</div>', unsafe_allow_html=True)
+        distance_threshold = st.slider(
+            "Threshold", 
+            min_value=0.1, max_value=2.0, value=1.0, step=0.1,
+            help="Lower = stricter matching. Higher = more lenient."
+        )
+        debug_mode = st.toggle("Show retrieved chunks", help="Displays the exact text chunks used to answer.")
 
 # --- Main Content ---
 
