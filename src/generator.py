@@ -40,8 +40,9 @@ Question:
 
 Instructions:
 1. Answer the question using ONLY the information from the Context Documents above.
-2. Every answer MUST include the source filename(s) cited.
-3. If the Context Documents do not contain enough information or are unrelated to the question, you MUST return EXACTLY this sentence:
+2. Do NOT include source filenames in your answer. Sources are displayed separately.
+3. Write clear, natural answers as if you are explaining to a person.
+4. If the Context Documents do not contain enough information or are unrelated to the question, you MUST return EXACTLY this sentence:
 "I could not find enough information in the uploaded documents."
 Do not add anything else if the information is missing.
 """
