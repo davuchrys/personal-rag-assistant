@@ -39,6 +39,28 @@ class RAGPipeline:
             
         return len(all_chunks)
 
+    # Simple patterns for casual/conversational messages
+    GREETING_PATTERNS = {
+        "hello", "hi", "hey", "good morning", "good afternoon", "good evening",
+        "howdy", "sup", "what's up", "whats up", "yo",
+    }
+    THANKS_PATTERNS = {
+        "thanks", "thank you", "thx", "ty", "appreciate it",
+    }
+
+    def _is_casual_message(self, query: str) -> str | None:
+        """Returns a friendly reply if the query is casual chit-chat, else None."""
+        q = query.strip().lower().rstrip("!?.,")
+        
+        if q in self.GREETING_PATTERNS:
+            return "Hey! I'm ready to help. Ask me anything about your uploaded documents."
+        if q in self.THANKS_PATTERNS:
+            return "You're welcome! Let me know if you have more questions."
+        if q in ("help", "what can you do", "what do you do"):
+            return ("I can answer questions based on the documents you've uploaded. "
+                    "Just upload a file in the sidebar, index it, and ask away!")
+        return None
+
     def ask(self, query: str, top_k: int = 5, distance_threshold: float = 1.0) -> dict:
         """
         Retrieves relevant context and generates an answer.
@@ -46,6 +68,11 @@ class RAGPipeline:
         (values closer to 0 are better).
         Returns the answer and the retrieved chunks used for context.
         """
+        # 0. Handle casual / conversational messages without hitting retrieval
+        casual_reply = self._is_casual_message(query)
+        if casual_reply:
+            return {"answer": casual_reply, "context_chunks": []}
+
         # 1. Retrieve chunks
         retrieved_chunks = self.vector_store.retrieve(
             query=query, 
