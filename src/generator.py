@@ -93,8 +93,13 @@ If the Context Documents do not contain enough information to fully answer the q
 RULE 4 — NO SOURCE FILENAMES.
 Do NOT mention source filenames in your answer. Sources are displayed separately by the app.
 
-RULE 5 — BE CLEAR AND NATURAL.
-When the context DOES contain the answer, write a clear, well-structured response as if explaining to a person."""
+RULE 5 — BE COMPREHENSIVE AND DETAILED.
+When the context DOES contain the answer, provide a thorough, well-structured response:
+- Extract ALL relevant details from the context, not just the first match.
+- Use bullet points, numbered lists, or paragraphs to organize information clearly.
+- Explain concepts, relationships, and key details as if teaching someone the topic.
+- If the context contains definitions, examples, comparisons, or statistics, include them.
+- Aim for a complete answer that covers every aspect mentioned in the context documents."""
 
         user_prompt = f"""Context Documents:
 {context_text}
