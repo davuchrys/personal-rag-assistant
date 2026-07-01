@@ -18,6 +18,10 @@ class RAGPipeline:
         """Returns the number of chunks currently stored in the vector database."""
         return self.vector_store.collection.count()
 
+    def get_indexed_files(self) -> list[str]:
+        """Returns a list of unique filenames currently indexed."""
+        return self.vector_store.get_indexed_files()
+
     def ingest_files(self, file_paths: list[str]) -> int:
         """
         Loads, chunks, and stores files in the vector database.

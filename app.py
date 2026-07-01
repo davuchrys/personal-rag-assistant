@@ -40,6 +40,7 @@ st.markdown("""
     
     html, body, [class*="css"] {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-size: 18px !important;
     }
     
     .stApp {
@@ -53,13 +54,13 @@ st.markdown("""
         margin-bottom: 1.5rem;
     }
     .app-header h1 {
-        font-size: 1.5rem;
+        font-size: 2.2rem;
         font-weight: 600;
         color: #111;
         margin: 0 0 0.25rem 0;
     }
     .app-header p {
-        font-size: 0.95rem;
+        font-size: 1.2rem;
         color: #666;
         margin: 0;
     }
@@ -73,7 +74,7 @@ st.markdown("""
         background: #f0fdf4;
         border: 1px solid #bbf7d0;
         border-radius: 8px;
-        font-size: 0.8rem;
+        font-size: 1.0rem;
         color: #15803d;
         margin-top: 0.75rem;
     }
@@ -90,7 +91,7 @@ st.markdown("""
         color: #475569;
         padding: 0.2rem 0.6rem;
         border-radius: 6px;
-        font-size: 0.8rem;
+        font-size: 0.95rem;
         font-weight: 500;
         margin-right: 0.35rem;
         margin-bottom: 0.35rem;
@@ -101,6 +102,7 @@ st.markdown("""
     .chat-answer {
         line-height: 1.7;
         color: #1a1a1a;
+        font-size: 1.1rem;
     }
     
     /* Sidebar clean */
@@ -110,7 +112,7 @@ st.markdown("""
     }
     
     .sidebar-section {
-        font-size: 0.75rem;
+        font-size: 0.95rem;
         text-transform: uppercase;
         letter-spacing: 0.08em;
         color: #999;
@@ -122,7 +124,7 @@ st.markdown("""
         padding: 0.35rem 0.5rem;
         background: #f8f8f8;
         border-radius: 6px;
-        font-size: 0.85rem;
+        font-size: 1.0rem;
         color: #333;
         margin-bottom: 0.25rem;
     }
@@ -139,7 +141,7 @@ st.markdown("""
     
     /* Chunk detail */
     .chunk-meta {
-        font-size: 0.8rem;
+        font-size: 0.95rem;
         color: #888;
         margin-bottom: 0.5rem;
     }
@@ -172,19 +174,20 @@ with st.sidebar:
             with st.spinner("Indexing..."):
                 num_chunks = pipeline.ingest_files(file_paths)
                 st.success(f"Done — {num_chunks} chunks indexed.")
-                st.session_state['indexed'] = True
-                # Clear indexed documents (only show after indexing)
-                if st.session_state.get('indexed'):
-                    st.markdown('<div class="sidebar-section">Management</div>', unsafe_allow_html=True)
-                    if st.button("Clear Indexed Documents", type="secondary"):
-                        confirm = st.warning("⚠️ This will delete all indexed data. Continue?")
-                        if st.button("Yes, clear", key="clear_confirm"):
-                            pipeline.clear_index()
-                            st.success("✅ Index cleared. You can now upload new documents.")
-                            st.session_state['indexed'] = False
-                            st.session_state.messages = []
-                            if "index_summary" in st.session_state:
-                                del st.session_state["index_summary"]
+
+    # Show indexed documents and management options
+    indexed_files_db = pipeline.get_indexed_files()
+    if indexed_files_db:
+        st.markdown('<div class="sidebar-section" style="margin-top: 1rem;">Indexed Files</div>', unsafe_allow_html=True)
+        for fname in indexed_files_db:
+            st.markdown(f'<div class="file-item" style="border-left: 3px solid #4caf50;">✓ {fname}</div>', unsafe_allow_html=True)
+            
+        st.markdown('<div class="sidebar-section" style="margin-top: 1rem;">Management</div>', unsafe_allow_html=True)
+        if st.button("Clear Indexed Documents", type="secondary"):
+            pipeline.clear_index()
+            st.success("✅ Index cleared. You can now upload new documents.")
+            st.session_state.messages = []
+            st.rerun()
     
     st.divider()
     st.markdown('<div class="sidebar-section">Search Settings</div>', unsafe_allow_html=True)
@@ -200,6 +203,11 @@ with st.sidebar:
 # Header
 db_count = pipeline.get_document_count()
 
+indexed_files = pipeline.get_indexed_files()
+files_text = ""
+if indexed_files:
+    files_text = f"<div style='margin-top: 0.75rem; font-size: 1.1rem; color: #64748b;'><strong>📄 Uploaded Files:</strong> {', '.join(indexed_files)}</div>"
+
 st.markdown(f"""
 <div class="app-header">
     <h1>📎 RAG Assistant</h1>
@@ -207,60 +215,10 @@ st.markdown(f"""
     <div class="status-bar {'empty' if db_count == 0 else ''}">
         {'⚠️ No documents indexed yet' if db_count == 0 else f'✓ {db_count} chunks ready'}
     </div>
+    {files_text}
 </div>
 """, unsafe_allow_html=True)
 
-# Example question buttons
-example_questions = [
-    "Summarize this document",
-    "What are the key points?",
-    "What tasks are mentioned?",
-    "What deadline is mentioned?",
-    "What does this document say about the project?",
-]
-cols = st.columns(len(example_questions))
-for col, q in zip(cols, example_questions):
-    if col.button(q, key=f"example_{q.replace(' ', '_')}"):
-        # Simulate query handling
-        st.session_state.messages.append({"role": "user", "content": q})
-        with st.chat_message("user"):
-            st.write(q)
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking…"):
-                result = pipeline.ask(query=q, distance_threshold=distance_threshold)
-                answer = result["answer"]
-                chunks = result["context_chunks"]
-                # Confidence label
-                if chunks:
-                    best_dist = min(c["distance"] for c in chunks)
-                    label, color = format_confidence(best_dist)
-                    st.markdown(f"<div class='confidence' style='color:{color}'>{label}</div>", unsafe_allow_html=True)
-                else:
-                    st.markdown("<div class='confidence' style='color:#9e9e9e'>Insufficient evidence</div>", unsafe_allow_html=True)
-                if answer.strip() == "I could not find enough information in the uploaded documents.":
-                    st.warning(answer)
-                    sources = []
-                else:
-                    st.markdown(f"<div class='card'><p>{answer}</p></div>", unsafe_allow_html=True)
-                    sources = list({c["metadata"].get("filename", "Unknown") for c in chunks})
-                    if sources:
-                        src_html = " ".join([f'<span class="source-badge">📄 {s}</span>' for s in sources])
-                        st.markdown(f"**Sources:** {src_html}", unsafe_allow_html=True)
-                if debug_mode and chunks:
-                    with st.expander("Evidence Used"):
-                        for i, ch in enumerate(chunks, 1):
-                            fname = ch["metadata"].get("filename", "Unknown")
-                            dist = ch["distance"]
-                            st.markdown(f"*Chunk {i} – {fname} – distance: {dist:.4f}*")
-                            st.text(ch["text"][:500])
-        # Save to history
-        st.session_state.messages.append({
-            "role": "assistant",
-            "answer": answer,
-            "sources": sources if chunks else [],
-            "chunks": chunks,
-        })
-        st.rerun()
 
 # Display chat history
 for msg in st.session_state.messages:

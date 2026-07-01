@@ -24,6 +24,20 @@ class VectorStore:
             metadata={"hnsw:space": "cosine"} # Use cosine similarity space
         )
 
+    def get_indexed_files(self) -> list[str]:
+        """Returns a list of unique filenames currently indexed."""
+        if self.collection.count() == 0:
+            return []
+        data = self.collection.get(include=["metadatas"])
+        if not data or not data["metadatas"]:
+            return []
+        
+        files = set()
+        for meta in data["metadatas"]:
+            if meta and "filename" in meta:
+                files.add(meta["filename"])
+        return sorted(list(files))
+
     def add_chunks(self, chunks: list[dict]):
         """Adds text chunks and their metadata to the vector store."""
         if not chunks:
