@@ -1,7 +1,6 @@
 import os
 import requests
-from google import genai
-from google.genai import types
+
 
 OLLAMA_MODEL = "llama3" # You can also use "phi3" or "mistral"
 
