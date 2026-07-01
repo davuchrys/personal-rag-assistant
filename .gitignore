@@ -5,4 +5,5 @@ test_vector_db/
 __pycache__/
 *.pyc
 data/users.json
+data/sessions.json
 data/chats/

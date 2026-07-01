@@ -26,6 +26,7 @@ def format_confidence(distance: float):
 st.set_page_config(page_title="RAG Assistant", page_icon="📎", layout="wide")
 
 USERS_FILE = "data/users.json"
+SESSIONS_FILE = "data/sessions.json"
 os.makedirs("data", exist_ok=True)
 
 def _load_users():
@@ -38,58 +39,93 @@ def _save_users(users):
     with open(USERS_FILE, "w", encoding="utf-8") as f:
         json.dump(users, f, ensure_ascii=False, indent=2)
 
+def _load_sessions():
+    if os.path.exists(SESSIONS_FILE):
+        with open(SESSIONS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def _save_sessions(sessions):
+    with open(SESSIONS_FILE, "w", encoding="utf-8") as f:
+        json.dump(sessions, f, ensure_ascii=False, indent=2)
+
 def _hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
+def _create_session(username: str) -> str:
+    """Create a session token and persist it."""
+    token = str(uuid.uuid4())
+    sessions = _load_sessions()
+    sessions[token] = username
+    _save_sessions(sessions)
+    return token
+
+def _login_user(username: str):
+    """Log in a user: set session state and persist token in URL."""
+    token = _create_session(username)
+    st.session_state.username = username
+    st.query_params["token"] = token
+
+# Auto-login from URL token on refresh
 if "username" not in st.session_state or not st.session_state.username:
-    st.markdown("<h2 style='text-align: center; margin-top: 5rem;'>Welcome to RAG Assistant</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #666;'>Sign up or log in to access your private workspace.</p>", unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col2:
-        tab_login, tab_signup = st.tabs(["Login", "Sign Up"])
+    token = st.query_params.get("token")
+    if token:
+        sessions = _load_sessions()
+        if token in sessions:
+            st.session_state.username = sessions[token]
+
+if "username" not in st.session_state or not st.session_state.username:
+    login_container = st.empty()
+    with login_container.container():
+        st.markdown("<h2 style='text-align: center; margin-top: 5rem;'>Welcome to RAG Assistant</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #666;'>Sign up or log in to access your private workspace.</p>", unsafe_allow_html=True)
         
-        with tab_login:
-            with st.form("login_form"):
-                login_user = st.text_input("Username", key="login_user")
-                login_pass = st.text_input("Password", type="password", key="login_pass")
-                login_submit = st.form_submit_button("Login", use_container_width=True, type="primary")
-                if login_submit:
-                    u = login_user.strip()
-                    if not u or not login_pass:
-                        st.error("Please enter both username and password.")
-                    else:
-                        users = _load_users()
-                        if u not in users or users[u] != _hash_password(login_pass):
-                            st.error("Invalid username or password.")
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col2:
+            tab_login, tab_signup = st.tabs(["Login", "Sign Up"])
+            
+            with tab_login:
+                with st.form("login_form"):
+                    login_user = st.text_input("Username", key="login_user")
+                    login_pass = st.text_input("Password", type="password", key="login_pass")
+                    login_submit = st.form_submit_button("Login", use_container_width=True, type="primary")
+                    if login_submit:
+                        u = login_user.strip()
+                        if not u or not login_pass:
+                            st.error("Please enter both username and password.")
                         else:
-                            st.session_state.username = u
-                            st.rerun()
-        
-        with tab_signup:
-            with st.form("signup_form"):
-                signup_user = st.text_input("Username", key="signup_user")
-                signup_pass = st.text_input("Password", type="password", key="signup_pass")
-                signup_pass2 = st.text_input("Confirm Password", type="password", key="signup_pass2")
-                signup_submit = st.form_submit_button("Create Account", use_container_width=True, type="primary")
-                if signup_submit:
-                    u = signup_user.strip()
-                    if not u or not signup_pass:
-                        st.error("Please fill in all fields.")
-                    elif len(signup_pass) < 4:
-                        st.error("Password must be at least 4 characters.")
-                    elif signup_pass != signup_pass2:
-                        st.error("Passwords do not match.")
-                    else:
-                        users = _load_users()
-                        if u in users:
-                            st.error("Username already taken. Please choose another.")
+                            users = _load_users()
+                            if u not in users or users[u] != _hash_password(login_pass):
+                                st.error("Invalid username or password.")
+                            else:
+                                _login_user(u)
+                                login_container.empty()
+            
+            with tab_signup:
+                with st.form("signup_form"):
+                    signup_user = st.text_input("Username", key="signup_user")
+                    signup_pass = st.text_input("Password", type="password", key="signup_pass")
+                    signup_pass2 = st.text_input("Confirm Password", type="password", key="signup_pass2")
+                    signup_submit = st.form_submit_button("Create Account", use_container_width=True, type="primary")
+                    if signup_submit:
+                        u = signup_user.strip()
+                        if not u or not signup_pass:
+                            st.error("Please fill in all fields.")
+                        elif len(signup_pass) < 4:
+                            st.error("Password must be at least 4 characters.")
+                        elif signup_pass != signup_pass2:
+                            st.error("Passwords do not match.")
                         else:
-                            users[u] = _hash_password(signup_pass)
-                            _save_users(users)
-                            st.session_state.username = u
-                            st.success("Account created! Logging you in...")
-                            st.rerun()
+                            users = _load_users()
+                            if u in users:
+                                st.error("Username already taken. Please choose another.")
+                            else:
+                                users[u] = _hash_password(signup_pass)
+                                _save_users(users)
+                                _login_user(u)
+                                login_container.empty()
+
+if "username" not in st.session_state or not st.session_state.username:
     st.stop()
 
 USERNAME = st.session_state.username
@@ -275,6 +311,13 @@ st.markdown("""
 with st.sidebar:
     st.markdown(f"**Logged in as: `{USERNAME}`**")
     if st.button("🚪 Logout", use_container_width=True, type="secondary"):
+        # Remove session token from persistent storage
+        token = st.query_params.get("token")
+        if token:
+            sessions = _load_sessions()
+            sessions.pop(token, None)
+            _save_sessions(sessions)
+        st.query_params.clear()
         st.session_state.username = None
         st.session_state.session_id = str(uuid.uuid4())
         st.session_state.messages = []
