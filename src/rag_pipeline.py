@@ -12,11 +12,16 @@ class RAGPipeline:
         self.vector_store = VectorStore(persist_directory=vector_db_path)
         self.generator = AnswerGenerator()
 
+    def get_document_count(self) -> int:
+        """Returns the number of chunks currently stored in the vector database."""
+        return self.vector_store.collection.count()
+
     def ingest_files(self, file_paths: list[str]) -> int:
         """
         Loads, chunks, and stores files in the vector database.
         Returns the number of chunks added.
         """
+
         all_chunks = []
         
         for file_path in file_paths:
