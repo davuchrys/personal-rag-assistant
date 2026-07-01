@@ -6,14 +6,10 @@ from google.genai import types
 OLLAMA_MODEL = "llama3" # You can also use "phi3" or "mistral"
 
 class AnswerGenerator:
-    """Generates answers using Gemini API or local Ollama based on retrieved context."""
+    """Generates answers using Groq API (Cloud) or local Ollama based on retrieved context."""
     
     def __init__(self):
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            raise ValueError("GEMINI_API_KEY environment variable is missing.")
-        self.client = genai.Client(api_key=api_key)
-        self.model_name = 'gemini-2.5-flash'
+        pass
 
     def _generate_with_ollama(self, prompt: str) -> str:
         url = "http://localhost:11434/api/generate"
@@ -31,6 +27,28 @@ class AnswerGenerator:
             return response.json().get("response", "")
         except Exception as e:
             raise Exception(f"Ollama error: {e}. Make sure Ollama is installed and running!")
+
+    def _generate_with_groq(self, prompt: str) -> str:
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            raise ValueError("GROQ_API_KEY environment variable is missing.")
+            
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": "llama3-8b-8192",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.0
+        }
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=120)
+            response.raise_for_status()
+            return response.json()["choices"][0]["message"]["content"]
+        except Exception as e:
+            raise Exception(f"Groq API error: {e}")
 
     def generate_answer(self, query: str, context_chunks: list[dict]) -> str:
         """
@@ -67,23 +85,19 @@ Do not add anything else if the information is missing.
 """
         
         try:
-            use_ollama = os.getenv("USE_OLLAMA", "false").lower() == "true"
+            from dotenv import dotenv_values
+            env_vars = dotenv_values(".env")
+            use_ollama_str = env_vars.get("USE_OLLAMA") or os.getenv("USE_OLLAMA", "false")
+            use_ollama = str(use_ollama_str).strip().lower() == "true"
+            
             if use_ollama:
                 answer = self._generate_with_ollama(prompt)
-                if not answer:
-                    return fallback_response
-                return answer
             else:
-                response = self.client.models.generate_content(
-                    model=self.model_name,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        temperature=0.0 
-                    )
-                )
-                if not response.text:
-                    return fallback_response
-                return response.text
+                answer = self._generate_with_groq(prompt)
+                
+            if not answer:
+                return fallback_response
+            return answer
                 
         except Exception as e:
             print(f"Error during generation: {e}")

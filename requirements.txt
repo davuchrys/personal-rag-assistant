@@ -3,6 +3,5 @@ chromadb
 sentence-transformers
 pypdf
 python-dotenv
-google-genai
 pytest
 requests
