@@ -3,22 +3,22 @@ import requests
 from google import genai
 from google.genai import types
 
-# Check environment variable to see if we should use local Ollama
-# Defaults to False (uses Gemini) so it won't crash on Streamlit Cloud
-USE_OLLAMA = os.getenv("USE_OLLAMA", "false").lower() == "true"
 OLLAMA_MODEL = "llama3" # You can also use "phi3" or "mistral"
 
 class AnswerGenerator:
     """Generates answers using Gemini API or local Ollama based on retrieved context."""
     
     def __init__(self):
-        self.use_ollama = USE_OLLAMA
+        # Check environment variable to see if we should use local Ollama
+        # Defaults to False (uses Gemini) so it won't crash on Streamlit Cloud
+        self.use_ollama = os.getenv("USE_OLLAMA", "false").lower() == "true"
+        
         if not self.use_ollama:
             api_key = os.getenv("GEMINI_API_KEY")
             if not api_key:
                 raise ValueError("GEMINI_API_KEY environment variable is missing.")
             self.client = genai.Client(api_key=api_key)
-            self.model_name = 'gemini-1.5-flash'
+            self.model_name = 'gemini-2.5-flash'
 
     def _generate_with_ollama(self, prompt: str) -> str:
         url = "http://localhost:11434/api/generate"
