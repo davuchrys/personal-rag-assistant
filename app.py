@@ -201,10 +201,22 @@ with st.sidebar:
     for chat in past_chats:
         is_active = (chat["session_id"] == st.session_state.get("session_id"))
         btn_type = "primary" if is_active else "secondary"
-        if st.button(f"{'🔵' if is_active else '💬'} {chat['title']}", key=f"chat_{chat['session_id']}", use_container_width=True, type=btn_type):
-            st.session_state.session_id = chat["session_id"]
-            st.session_state.messages = load_chat(chat["session_id"])
-            st.rerun()
+        
+        col1, col2 = st.columns([0.85, 0.15])
+        with col1:
+            if st.button(f"{'🔵' if is_active else '💬'} {chat['title']}", key=f"chat_{chat['session_id']}", use_container_width=True, type=btn_type):
+                st.session_state.session_id = chat["session_id"]
+                st.session_state.messages = load_chat(chat["session_id"])
+                st.rerun()
+        with col2:
+            if st.button("✖", key=f"del_{chat['session_id']}", use_container_width=True):
+                file_path = os.path.join(CHATS_DIR, f"{chat['session_id']}.json")
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                if is_active:
+                    st.session_state.session_id = str(uuid.uuid4())
+                    st.session_state.messages = []
+                st.rerun()
 
     st.divider()
     
