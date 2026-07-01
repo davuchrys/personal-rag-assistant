@@ -6,6 +6,19 @@ load_dotenv()
 
 from src.rag_pipeline import RAGPipeline
 
+def format_confidence(distance: float):
+    """Return a confidence label and hex color based on distance.
+    Lower distance = higher confidence.
+    """
+    if distance <= 0.45:
+        return "High confidence", "#4caf50"
+    if distance <= 0.75:
+        return "Medium confidence", "#ff9800"
+    if distance <= 1.0:
+        return "Low confidence", "#f44336"
+    return "Insufficient evidence", "#9e9e9e"
+
+
 # --- Setup ---
 st.set_page_config(page_title="RAG Assistant", page_icon="📎", layout="wide")
 
@@ -160,6 +173,18 @@ with st.sidebar:
                 num_chunks = pipeline.ingest_files(file_paths)
                 st.success(f"Done — {num_chunks} chunks indexed.")
                 st.session_state['indexed'] = True
+                # Clear indexed documents (only show after indexing)
+                if st.session_state.get('indexed'):
+                    st.markdown('<div class="sidebar-section">Management</div>', unsafe_allow_html=True)
+                    if st.button("Clear Indexed Documents", type="secondary"):
+                        confirm = st.warning("⚠️ This will delete all indexed data. Continue?")
+                        if st.button("Yes, clear", key="clear_confirm"):
+                            pipeline.clear_index()
+                            st.success("✅ Index cleared. You can now upload new documents.")
+                            st.session_state['indexed'] = False
+                            st.session_state.messages = []
+                            if "index_summary" in st.session_state:
+                                del st.session_state["index_summary"]
     
     st.divider()
     st.markdown('<div class="sidebar-section">Search Settings</div>', unsafe_allow_html=True)
@@ -184,6 +209,58 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
+
+# Example question buttons
+example_questions = [
+    "Summarize this document",
+    "What are the key points?",
+    "What tasks are mentioned?",
+    "What deadline is mentioned?",
+    "What does this document say about the project?",
+]
+cols = st.columns(len(example_questions))
+for col, q in zip(cols, example_questions):
+    if col.button(q, key=f"example_{q.replace(' ', '_')}"):
+        # Simulate query handling
+        st.session_state.messages.append({"role": "user", "content": q})
+        with st.chat_message("user"):
+            st.write(q)
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking…"):
+                result = pipeline.ask(query=q, distance_threshold=distance_threshold)
+                answer = result["answer"]
+                chunks = result["context_chunks"]
+                # Confidence label
+                if chunks:
+                    best_dist = min(c["distance"] for c in chunks)
+                    label, color = format_confidence(best_dist)
+                    st.markdown(f"<div class='confidence' style='color:{color}'>{label}</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown("<div class='confidence' style='color:#9e9e9e'>Insufficient evidence</div>", unsafe_allow_html=True)
+                if answer.strip() == "I could not find enough information in the uploaded documents.":
+                    st.warning(answer)
+                    sources = []
+                else:
+                    st.markdown(f"<div class='card'><p>{answer}</p></div>", unsafe_allow_html=True)
+                    sources = list({c["metadata"].get("filename", "Unknown") for c in chunks})
+                    if sources:
+                        src_html = " ".join([f'<span class="source-badge">📄 {s}</span>' for s in sources])
+                        st.markdown(f"**Sources:** {src_html}", unsafe_allow_html=True)
+                if debug_mode and chunks:
+                    with st.expander("Evidence Used"):
+                        for i, ch in enumerate(chunks, 1):
+                            fname = ch["metadata"].get("filename", "Unknown")
+                            dist = ch["distance"]
+                            st.markdown(f"*Chunk {i} – {fname} – distance: {dist:.4f}*")
+                            st.text(ch["text"][:500])
+        # Save to history
+        st.session_state.messages.append({
+            "role": "assistant",
+            "answer": answer,
+            "sources": sources if chunks else [],
+            "chunks": chunks,
+        })
+        st.rerun()
 
 # Display chat history
 for msg in st.session_state.messages:

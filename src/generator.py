@@ -11,7 +11,7 @@ class AnswerGenerator:
         if not api_key:
             raise ValueError("GEMINI_API_KEY environment variable is missing.")
         self.client = genai.Client(api_key=api_key)
-        self.model_name = 'gemini-2.5-flash' # A fast and capable model
+        self.model_name = 'gemini-1.5-flash'  # Higher free-tier quota (1500 req/day vs 20)
 
     def generate_answer(self, query: str, context_chunks: list[dict]) -> str:
         """

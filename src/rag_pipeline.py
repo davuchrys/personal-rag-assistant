@@ -11,6 +11,8 @@ class RAGPipeline:
         self.chunker = TextChunker(chunk_size=1000, overlap=200)
         self.vector_store = VectorStore(persist_directory=vector_db_path)
         self.generator = AnswerGenerator()
+        # Store path for clearing later
+        self.persist_directory = vector_db_path
 
     def get_document_count(self) -> int:
         """Returns the number of chunks currently stored in the vector database."""
@@ -60,6 +62,25 @@ class RAGPipeline:
             return ("I can answer questions based on the documents you've uploaded. "
                     "Just upload a file in the sidebar, index it, and ask away!")
         return None
+
+    def clear_index(self):
+        """Deletes the persistent vector store and reinitializes the collection.
+        Used by the UI to reset indexed documents.
+        """
+        import shutil
+        # Remove the persistence directory if it exists
+        if os.path.isdir(self.persist_directory):
+            shutil.rmtree(self.persist_directory)
+        # Re‑create a fresh VectorStore instance
+        self.vector_store = VectorStore(persist_directory=self.persist_directory)
+        # Reset any session state flags that indicate indexing has occurred
+        try:
+            import streamlit as st
+            for key in ["indexed", "messages"]:
+                if key in st.session_state:
+                    st.session_state.pop(key)
+        except Exception:
+            pass
 
     def ask(self, query: str, top_k: int = 5, distance_threshold: float = 1.0) -> dict:
         """
