@@ -9,16 +9,11 @@ class AnswerGenerator:
     """Generates answers using Gemini API or local Ollama based on retrieved context."""
     
     def __init__(self):
-        # Check environment variable to see if we should use local Ollama
-        # Defaults to False (uses Gemini) so it won't crash on Streamlit Cloud
-        self.use_ollama = os.getenv("USE_OLLAMA", "false").lower() == "true"
-        
-        if not self.use_ollama:
-            api_key = os.getenv("GEMINI_API_KEY")
-            if not api_key:
-                raise ValueError("GEMINI_API_KEY environment variable is missing.")
-            self.client = genai.Client(api_key=api_key)
-            self.model_name = 'gemini-2.5-flash'
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY environment variable is missing.")
+        self.client = genai.Client(api_key=api_key)
+        self.model_name = 'gemini-2.5-flash'
 
     def _generate_with_ollama(self, prompt: str) -> str:
         url = "http://localhost:11434/api/generate"
@@ -72,7 +67,8 @@ Do not add anything else if the information is missing.
 """
         
         try:
-            if self.use_ollama:
+            use_ollama = os.getenv("USE_OLLAMA", "false").lower() == "true"
+            if use_ollama:
                 answer = self._generate_with_ollama(prompt)
                 if not answer:
                     return fallback_response

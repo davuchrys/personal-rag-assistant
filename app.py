@@ -4,7 +4,7 @@ import uuid
 import streamlit as st
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 from src.rag_pipeline import RAGPipeline
 
