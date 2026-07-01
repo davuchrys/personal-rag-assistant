@@ -151,21 +151,28 @@ st.markdown("""
         border-right: 1px solid #eee;
     }
     
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] div,
+    [data-testid="stSidebar"] span,
+    [data-testid="stSidebar"] button {
+        font-size: 15px !important;
+    }
+    
     .sidebar-section {
-        font-size: 0.95rem;
+        font-size: 12px !important;
         text-transform: uppercase;
         letter-spacing: 0.08em;
-        color: #999;
-        font-weight: 600;
-        margin-bottom: 0.5rem;
+        color: #999 !important;
+        font-weight: 600 !important;
+        margin-bottom: 0.25rem;
     }
     
     .file-item {
-        padding: 0.35rem 0.5rem;
+        padding: 0.25rem 0.5rem;
         background: #f8f8f8;
         border-radius: 6px;
-        font-size: 1.0rem;
-        color: #333;
+        font-size: 14px !important;
+        color: #333 !important;
         margin-bottom: 0.25rem;
     }
     
@@ -175,6 +182,13 @@ st.markdown("""
         font-weight: 500 !important;
         transition: all 0.15s ease !important;
     }
+    
+    [data-testid="stSidebar"] .stButton > button {
+        padding-top: 0.35rem !important;
+        padding-bottom: 0.35rem !important;
+        min-height: 2.2rem !important;
+    }
+    
     .stButton > button:hover {
         transform: translateY(-1px) !important;
     }
