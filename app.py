@@ -24,14 +24,29 @@ def format_confidence(distance: float):
 # --- Setup ---
 st.set_page_config(page_title="RAG Assistant", page_icon="📎", layout="wide")
 
+if "username" not in st.session_state or not st.session_state.username:
+    st.markdown("<h2 style='text-align: center; margin-top: 5rem;'>Welcome to RAG Assistant</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #666;'>Please enter your username to access your private workspace.</p>", unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:
+        with st.form("login_form"):
+            username_input = st.text_input("Username")
+            submit = st.form_submit_button("Enter Workspace", use_container_width=True, type="primary")
+            if submit and username_input.strip():
+                st.session_state.username = username_input.strip()
+                st.rerun()
+    st.stop()
+
+USERNAME = st.session_state.username
+
 @st.cache_resource
-def get_pipeline():
-    return RAGPipeline()
+def get_pipeline(username: str):
+    return RAGPipeline(vector_db_path=f"./vector_db/{username}")
 
-pipeline = get_pipeline()
-os.makedirs("data/chats", exist_ok=True)
-
-CHATS_DIR = "data/chats"
+pipeline = get_pipeline(USERNAME)
+CHATS_DIR = f"data/chats/{USERNAME}"
+os.makedirs(CHATS_DIR, exist_ok=True)
 
 def save_chat(session_id, messages):
     if not messages:
@@ -204,6 +219,15 @@ st.markdown("""
 
 # --- Sidebar ---
 with st.sidebar:
+    st.markdown(f"**Logged in as: `{USERNAME}`**")
+    if st.button("🚪 Logout", use_container_width=True, type="secondary"):
+        st.session_state.username = None
+        st.session_state.session_id = str(uuid.uuid4())
+        st.session_state.messages = []
+        st.rerun()
+        
+    st.divider()
+    
     # New Chat Button
     if st.button("➕ New Chat", use_container_width=True, type="primary"):
         st.session_state.session_id = str(uuid.uuid4())
