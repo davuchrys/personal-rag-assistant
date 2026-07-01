@@ -1,4 +1,6 @@
 import os
+import json
+import uuid
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -27,11 +29,49 @@ def get_pipeline():
     return RAGPipeline()
 
 pipeline = get_pipeline()
-os.makedirs("data", exist_ok=True)
+os.makedirs("data/chats", exist_ok=True)
+
+CHATS_DIR = "data/chats"
+
+def save_chat(session_id, messages):
+    if not messages:
+        return
+    file_path = os.path.join(CHATS_DIR, f"{session_id}.json")
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(messages, f, ensure_ascii=False, indent=2)
+
+def load_chat(session_id):
+    file_path = os.path.join(CHATS_DIR, f"{session_id}.json")
+    if os.path.exists(file_path):
+        with open(file_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+def get_all_chats():
+    chats = []
+    for filename in os.listdir(CHATS_DIR):
+        if filename.endswith(".json"):
+            session_id = filename[:-5]
+            file_path = os.path.join(CHATS_DIR, filename)
+            with open(file_path, "r", encoding="utf-8") as f:
+                try:
+                    messages = json.load(f)
+                    if messages:
+                        first_msg = next((m["content"] for m in messages if m["role"] == "user"), "Empty Chat")
+                        title = first_msg[:30] + "..." if len(first_msg) > 30 else first_msg
+                        mtime = os.path.getmtime(file_path)
+                        chats.append({"session_id": session_id, "title": title, "mtime": mtime})
+                except Exception:
+                    pass
+    chats.sort(key=lambda x: x["mtime"], reverse=True)
+    return chats
 
 # Initialize chat history in session state
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
+
 if "messages" not in st.session_state:
-    st.session_state.messages = []
+    st.session_state.messages = load_chat(st.session_state.session_id)
 
 # --- Clean, Minimal CSS ---
 st.markdown("""
@@ -152,9 +192,20 @@ st.markdown("""
 with st.sidebar:
     # New Chat Button
     if st.button("➕ New Chat", use_container_width=True, type="primary"):
+        st.session_state.session_id = str(uuid.uuid4())
         st.session_state.messages = []
         st.rerun()
         
+    st.markdown('<div class="sidebar-section" style="margin-top:1rem;">Past Chats</div>', unsafe_allow_html=True)
+    past_chats = get_all_chats()
+    for chat in past_chats:
+        is_active = (chat["session_id"] == st.session_state.get("session_id"))
+        btn_type = "primary" if is_active else "secondary"
+        if st.button(f"{'🔵' if is_active else '💬'} {chat['title']}", key=f"chat_{chat['session_id']}", use_container_width=True, type=btn_type):
+            st.session_state.session_id = chat["session_id"]
+            st.session_state.messages = load_chat(chat["session_id"])
+            st.rerun()
+
     st.divider()
     
     st.markdown('<div class="sidebar-section">📁 Document Workspace</div>', unsafe_allow_html=True)
@@ -257,6 +308,7 @@ for msg in st.session_state.messages:
 if query := st.chat_input("Ask something from your documents..."):
     # Show user message
     st.session_state.messages.append({"role": "user", "content": query})
+    save_chat(st.session_state.session_id, st.session_state.messages)
     with st.chat_message("user"):
         st.write(query)
     
@@ -298,3 +350,4 @@ if query := st.chat_input("Ask something from your documents..."):
                 "sources": sources,
                 "chunks": chunks
             })
+            save_chat(st.session_state.session_id, st.session_state.messages)
