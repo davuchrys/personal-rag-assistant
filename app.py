@@ -58,7 +58,7 @@ def get_all_chats():
                     messages = json.load(f)
                     if messages:
                         first_msg = next((m["content"] for m in messages if m["role"] == "user"), "Empty Chat")
-                        title = first_msg[:30] + "..." if len(first_msg) > 30 else first_msg
+                        title = first_msg[:20] + "..." if len(first_msg) > 20 else first_msg
                         mtime = os.path.getmtime(file_path)
                         chats.append({"session_id": session_id, "title": title, "mtime": mtime})
                 except Exception:
@@ -202,14 +202,14 @@ with st.sidebar:
         is_active = (chat["session_id"] == st.session_state.get("session_id"))
         btn_type = "primary" if is_active else "secondary"
         
-        col1, col2 = st.columns([0.85, 0.15])
+        col1, col2 = st.columns([0.82, 0.18])
         with col1:
-            if st.button(f"{'🔵' if is_active else '💬'} {chat['title']}", key=f"chat_{chat['session_id']}", use_container_width=True, type=btn_type):
+            if st.button(chat['title'], key=f"chat_{chat['session_id']}", use_container_width=True, type=btn_type):
                 st.session_state.session_id = chat["session_id"]
                 st.session_state.messages = load_chat(chat["session_id"])
                 st.rerun()
         with col2:
-            if st.button("✖", key=f"del_{chat['session_id']}", use_container_width=True):
+            if st.button("✕", key=f"del_{chat['session_id']}", use_container_width=True):
                 file_path = os.path.join(CHATS_DIR, f"{chat['session_id']}.json")
                 if os.path.exists(file_path):
                     os.remove(file_path)
