@@ -1,0 +1,3 @@
+Davu is building a personal assistant using Retrieval-Augmented Generation.
+The system uses document loading, chunking, embeddings, vector search, and grounded answer generation.
+The assistant must refuse to answer if the uploaded documents do not contain enough information.
