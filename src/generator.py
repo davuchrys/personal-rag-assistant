@@ -44,6 +44,8 @@ class AnswerGenerator:
         }
         try:
             response = requests.post(url, headers=headers, json=payload, timeout=120)
+            if response.status_code != 200:
+                raise Exception(f"Status {response.status_code}: {response.text}")
             response.raise_for_status()
             return response.json()["choices"][0]["message"]["content"]
         except Exception as e:
