@@ -1,17 +1,41 @@
 import os
+import requests
 from google import genai
 from google.genai import types
 
+# Check environment variable to see if we should use local Ollama
+# Defaults to False (uses Gemini) so it won't crash on Streamlit Cloud
+USE_OLLAMA = os.getenv("USE_OLLAMA", "false").lower() == "true"
+OLLAMA_MODEL = "llama3" # You can also use "phi3" or "mistral"
+
 class AnswerGenerator:
-    """Generates answers using Gemini API based on retrieved context."""
+    """Generates answers using Gemini API or local Ollama based on retrieved context."""
     
     def __init__(self):
-        # Initialize Google GenAI client (it reads GEMINI_API_KEY from environment by default)
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            raise ValueError("GEMINI_API_KEY environment variable is missing.")
-        self.client = genai.Client(api_key=api_key)
-        self.model_name = 'gemini-1.5-flash'  # Higher free-tier quota (1500 req/day vs 20)
+        self.use_ollama = USE_OLLAMA
+        if not self.use_ollama:
+            api_key = os.getenv("GEMINI_API_KEY")
+            if not api_key:
+                raise ValueError("GEMINI_API_KEY environment variable is missing.")
+            self.client = genai.Client(api_key=api_key)
+            self.model_name = 'gemini-1.5-flash'
+
+    def _generate_with_ollama(self, prompt: str) -> str:
+        url = "http://localhost:11434/api/generate"
+        payload = {
+            "model": OLLAMA_MODEL,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": 0.0 # Low temperature for factual retrieval
+            }
+        }
+        try:
+            response = requests.post(url, json=payload, timeout=120)
+            response.raise_for_status()
+            return response.json().get("response", "")
+        except Exception as e:
+            raise Exception(f"Ollama error: {e}. Make sure Ollama is installed and running!")
 
     def generate_answer(self, query: str, context_chunks: list[dict]) -> str:
         """
@@ -48,21 +72,23 @@ Do not add anything else if the information is missing.
 """
         
         try:
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.0 # Low temperature for factual retrieval
+            if self.use_ollama:
+                answer = self._generate_with_ollama(prompt)
+                if not answer:
+                    return fallback_response
+                return answer
+            else:
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=0.0 
+                    )
                 )
-            )
-            
-            # Additional safety: if the model tries to answer but we know context was weak, 
-            # though the threshold handles weak context, this ensures strict compliance.
-            if not response.text:
-                return fallback_response
+                if not response.text:
+                    return fallback_response
+                return response.text
                 
-            return response.text
-            
         except Exception as e:
             print(f"Error during generation: {e}")
             return f"An error occurred while generating the answer: {e}"
