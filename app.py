@@ -75,57 +75,53 @@ if "username" not in st.session_state or not st.session_state.username:
             st.session_state.username = sessions[token]
 
 if "username" not in st.session_state or not st.session_state.username:
-    login_container = st.empty()
-    with login_container.container():
-        st.markdown("<h2 style='text-align: center; margin-top: 5rem;'>Welcome to RAG Assistant</h2>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #666;'>Sign up or log in to access your private workspace.</p>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center; margin-top: 5rem;'>Welcome to RAG Assistant</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #666;'>Sign up or log in to access your private workspace.</p>", unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:
+        tab_login, tab_signup = st.tabs(["Login", "Sign Up"])
         
-        col1, col2, col3 = st.columns([1, 1, 1])
-        with col2:
-            tab_login, tab_signup = st.tabs(["Login", "Sign Up"])
-            
-            with tab_login:
-                with st.form("login_form"):
-                    login_user = st.text_input("Username", key="login_user")
-                    login_pass = st.text_input("Password", type="password", key="login_pass")
-                    login_submit = st.form_submit_button("Login", use_container_width=True, type="primary")
-                    if login_submit:
-                        u = login_user.strip()
-                        if not u or not login_pass:
-                            st.error("Please enter both username and password.")
+        with tab_login:
+            with st.form("login_form"):
+                login_user = st.text_input("Username", key="login_user")
+                login_pass = st.text_input("Password", type="password", key="login_pass")
+                login_submit = st.form_submit_button("Login", use_container_width=True, type="primary")
+                if login_submit:
+                    u = login_user.strip()
+                    if not u or not login_pass:
+                        st.error("Please enter both username and password.")
+                    else:
+                        users = _load_users()
+                        if u not in users or users[u] != _hash_password(login_pass):
+                            st.error("Invalid username or password.")
                         else:
-                            users = _load_users()
-                            if u not in users or users[u] != _hash_password(login_pass):
-                                st.error("Invalid username or password.")
-                            else:
-                                _login_user(u)
-                                login_container.empty()
-            
-            with tab_signup:
-                with st.form("signup_form"):
-                    signup_user = st.text_input("Username", key="signup_user")
-                    signup_pass = st.text_input("Password", type="password", key="signup_pass")
-                    signup_pass2 = st.text_input("Confirm Password", type="password", key="signup_pass2")
-                    signup_submit = st.form_submit_button("Create Account", use_container_width=True, type="primary")
-                    if signup_submit:
-                        u = signup_user.strip()
-                        if not u or not signup_pass:
-                            st.error("Please fill in all fields.")
-                        elif len(signup_pass) < 4:
-                            st.error("Password must be at least 4 characters.")
-                        elif signup_pass != signup_pass2:
-                            st.error("Passwords do not match.")
+                            _login_user(u)
+                            st.rerun()
+        
+        with tab_signup:
+            with st.form("signup_form"):
+                signup_user = st.text_input("Username", key="signup_user")
+                signup_pass = st.text_input("Password", type="password", key="signup_pass")
+                signup_pass2 = st.text_input("Confirm Password", type="password", key="signup_pass2")
+                signup_submit = st.form_submit_button("Create Account", use_container_width=True, type="primary")
+                if signup_submit:
+                    u = signup_user.strip()
+                    if not u or not signup_pass:
+                        st.error("Please fill in all fields.")
+                    elif len(signup_pass) < 4:
+                        st.error("Password must be at least 4 characters.")
+                    elif signup_pass != signup_pass2:
+                        st.error("Passwords do not match.")
+                    else:
+                        users = _load_users()
+                        if u in users:
+                            st.error("Username already taken. Please choose another.")
                         else:
-                            users = _load_users()
-                            if u in users:
-                                st.error("Username already taken. Please choose another.")
-                            else:
-                                users[u] = _hash_password(signup_pass)
-                                _save_users(users)
-                                _login_user(u)
-                                login_container.empty()
-
-if "username" not in st.session_state or not st.session_state.username:
+                            users[u] = _hash_password(signup_pass)
+                            _save_users(users)
+                            _login_user(u)
+                            st.rerun()
     st.stop()
 
 USERNAME = st.session_state.username
