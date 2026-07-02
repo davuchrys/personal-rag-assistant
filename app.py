@@ -69,12 +69,37 @@ def _save_user(username: str, password_hash: str) -> bool:
         return False
 
 def _create_session(username: str) -> str:
-    """Create a session token and persist it."""
+    """Create a session token and persist it to Supabase."""
     token = str(uuid.uuid4())
-    sessions = _load_sessions()
-    sessions[token] = username
-    _save_sessions(sessions)
+    sb = _get_supabase()
+    if sb:
+        try:
+            sb.table("sessions").insert({"token": token, "username": username}).execute()
+        except Exception:
+            pass
     return token
+
+def _get_session_user(token: str) -> str | None:
+    """Look up username from a session token in Supabase."""
+    sb = _get_supabase()
+    if sb is None or not token:
+        return None
+    try:
+        result = sb.table("sessions").select("username").eq("token", token).execute()
+        if result.data:
+            return result.data[0]["username"]
+    except Exception:
+        pass
+    return None
+
+def _delete_session(token: str):
+    """Remove a session token from Supabase on logout."""
+    sb = _get_supabase()
+    if sb and token:
+        try:
+            sb.table("sessions").delete().eq("token", token).execute()
+        except Exception:
+            pass
 
 def _login_user(username: str):
     """Log in a user: set session state and persist token in URL."""
@@ -86,9 +111,10 @@ def _login_user(username: str):
 if "username" not in st.session_state or not st.session_state.username:
     token = st.query_params.get("token")
     if token:
-        sessions = _load_sessions()
-        if token in sessions:
-            st.session_state.username = sessions[token]
+        user = _get_session_user(token)
+        if user:
+            st.session_state.username = user
+
 
 if "username" not in st.session_state or not st.session_state.username:
     st.markdown("<h2 style='text-align: center; margin-top: 5rem;'>Welcome to RAG Assistant</h2>", unsafe_allow_html=True)
@@ -326,12 +352,10 @@ st.markdown("""
 with st.sidebar:
     st.markdown(f"**Logged in as: `{USERNAME}`**")
     if st.button("🚪 Logout", use_container_width=True, type="secondary"):
-        # Remove session token from persistent storage
+        # Remove session token from Supabase
         token = st.query_params.get("token")
         if token:
-            sessions = _load_sessions()
-            sessions.pop(token, None)
-            _save_sessions(sessions)
+            _delete_session(token)
         st.query_params.clear()
         st.session_state.username = None
         st.session_state.session_id = str(uuid.uuid4())
