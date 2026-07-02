@@ -147,6 +147,14 @@ Rewritten Query:"""
                 
                 api_key = os.getenv("OPENROUTER_API_KEY")
                 if not api_key:
+                    try:
+                        import streamlit as st
+                        api_key = st.secrets.get("OPENROUTER_API_KEY")
+                    except Exception:
+                        pass
+                
+                if not api_key:
+                    print("[Query Reformulation] Missing OPENROUTER_API_KEY")
                     return query
                     
                 llm = ChatOpenAI(
@@ -163,12 +171,14 @@ Rewritten Query:"""
                 reformulated = response.content.strip()
             
             if reformulated and len(reformulated) < 200:
-                print(f"[Query Reformulation] '{query}' → '{reformulated}'")
+                print(f"[Query Reformulation] '{query}' -> '{reformulated}'")
                 return reformulated
             return query
             
         except Exception as e:
-            print(f"[Query Reformulation] Failed: {e}, using original query")
+            import traceback
+            print(f"[Query Reformulation] Failed: {e}")
+            traceback.print_exc()
             return query
 
     def ask(self, query: str, top_k: int = 8, distance_threshold: float = 0.7, chat_history: list[dict] = None) -> dict:
