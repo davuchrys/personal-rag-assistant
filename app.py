@@ -25,32 +25,48 @@ def format_confidence(distance: float):
 # --- Setup ---
 st.set_page_config(page_title="RAG Assistant", page_icon="📎", layout="wide")
 
-USERS_FILE = "data/users.json"
 SESSIONS_FILE = "data/sessions.json"
 os.makedirs("data", exist_ok=True)
 
-def _load_users():
-    if os.path.exists(USERS_FILE):
-        with open(USERS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-def _save_users(users):
-    with open(USERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(users, f, ensure_ascii=False, indent=2)
-
-def _load_sessions():
-    if os.path.exists(SESSIONS_FILE):
-        with open(SESSIONS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-def _save_sessions(sessions):
-    with open(SESSIONS_FILE, "w", encoding="utf-8") as f:
-        json.dump(sessions, f, ensure_ascii=False, indent=2)
+# ---- Supabase Auth ----
+@st.cache_resource
+def _get_supabase():
+    """Initialize Supabase client from Streamlit Secrets or env vars."""
+    from supabase import create_client
+    try:
+        url = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL", "")
+        key = st.secrets.get("SUPABASE_KEY") or os.getenv("SUPABASE_KEY", "")
+    except Exception:
+        url = os.getenv("SUPABASE_URL", "")
+        key = os.getenv("SUPABASE_KEY", "")
+    if not url or not key:
+        return None
+    return create_client(url, key)
 
 def _hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
+
+def _load_users() -> dict:
+    """Load all users from Supabase. Falls back to empty dict if unavailable."""
+    sb = _get_supabase()
+    if sb is None:
+        return {}
+    try:
+        result = sb.table("users").select("username, password_hash").execute()
+        return {row["username"]: row["password_hash"] for row in result.data}
+    except Exception:
+        return {}
+
+def _save_user(username: str, password_hash: str) -> bool:
+    """Save a new user to Supabase. Returns True on success."""
+    sb = _get_supabase()
+    if sb is None:
+        return False
+    try:
+        sb.table("users").insert({"username": username, "password_hash": password_hash}).execute()
+        return True
+    except Exception:
+        return False
 
 def _create_session(username: str) -> str:
     """Create a session token and persist it."""
@@ -77,11 +93,14 @@ if "username" not in st.session_state or not st.session_state.username:
 if "username" not in st.session_state or not st.session_state.username:
     st.markdown("<h2 style='text-align: center; margin-top: 5rem;'>Welcome to RAG Assistant</h2>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: #666;'>Sign up or log in to access your private workspace.</p>", unsafe_allow_html=True)
-    
+
+    if _get_supabase() is None:
+        st.warning("⚠️ Database not configured. Set SUPABASE_URL and SUPABASE_KEY in Secrets / .env to enable accounts.")
+
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
         tab_login, tab_signup = st.tabs(["Login", "Sign Up"])
-        
+
         with tab_login:
             with st.form("login_form"):
                 login_user = st.text_input("Username", key="login_user")
@@ -98,7 +117,7 @@ if "username" not in st.session_state or not st.session_state.username:
                         else:
                             _login_user(u)
                             st.rerun()
-        
+
         with tab_signup:
             with st.form("signup_form"):
                 signup_user = st.text_input("Username", key="signup_user")
@@ -117,9 +136,9 @@ if "username" not in st.session_state or not st.session_state.username:
                         users = _load_users()
                         if u in users:
                             st.error("Username already taken. Please choose another.")
+                        elif not _save_user(u, _hash_password(signup_pass)):
+                            st.error("Could not save account. Please check Supabase configuration.")
                         else:
-                            users[u] = _hash_password(signup_pass)
-                            _save_users(users)
                             _login_user(u)
                             st.rerun()
     st.stop()
