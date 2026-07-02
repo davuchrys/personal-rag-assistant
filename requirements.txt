@@ -7,4 +7,5 @@ pytest
 requests
 langchain
 langchain-openai
-supabase
+langchain-text-splitters
+supabase

@@ -86,12 +86,15 @@ class RAGPipeline:
         except Exception:
             pass
 
-    def ask(self, query: str, top_k: int = 8, distance_threshold: float = 0.7) -> dict:
+    def ask(self, query: str, top_k: int = 8, distance_threshold: float = 0.7, chat_history: list[dict] = None) -> dict:
         """
         Retrieves relevant context and generates an answer.
         distance_threshold of 0.7 is a strict default for cosine distance 
         (values closer to 0 are better). Chunks above this are discarded.
         Returns the answer and the retrieved chunks used for context.
+        
+        Args:
+            chat_history: Optional list of previous messages for conversation memory.
         """
         # 0. Handle casual / conversational messages without hitting retrieval
         casual_reply = self._is_casual_message(query)
@@ -105,8 +108,8 @@ class RAGPipeline:
             distance_threshold=distance_threshold
         )
         
-        # 2. Generate answer
-        answer = self.generator.generate_answer(query, retrieved_chunks)
+        # 2. Generate answer with conversation history
+        answer = self.generator.generate_answer(query, retrieved_chunks, chat_history=chat_history)
         
         return {
             "answer": answer,

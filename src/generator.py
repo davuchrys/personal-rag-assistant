@@ -5,7 +5,7 @@ import requests
 OLLAMA_MODEL = "llama3" # You can also use "phi3" or "mistral"
 
 class AnswerGenerator:
-    """Generates answers using Groq API (Cloud) or local Ollama based on retrieved context."""
+    """Generates answers using OpenRouter (via LangChain) or local Ollama based on retrieved context."""
     
     def __init__(self):
         pass
@@ -55,31 +55,15 @@ class AnswerGenerator:
         except Exception as e:
             raise Exception(f"LangChain OpenRouter error: {e}")
 
-    def generate_answer(self, query: str, context_chunks: list[dict]) -> str:
-        """
-        Generates an answer from the context chunks.
-        If no chunks are provided, returns the fallback response.
-        Includes a quality gate to reject low-relevance chunks.
-        """
-        fallback_response = "I could not find enough information in the uploaded documents."
+    def _build_prompt(self, query: str, context_text: str, chat_history: list[dict] = None) -> tuple[str, str]:
+        """Build system and user prompts using ChatPromptTemplate style.
         
-        if not context_chunks:
-            return fallback_response
-        
-        # QUALITY GATE: If the best chunk is still too distant, refuse to answer.
-        # This prevents the LLM from trying to answer with irrelevant context.
-        best_distance = min(c.get("distance", 999) for c in context_chunks)
-        if best_distance > 0.75:
-            return fallback_response
-            
-        # Build the context string
-        context_text = ""
-        for i, chunk in enumerate(context_chunks):
-            filename = chunk['metadata'].get('filename', 'Unknown Source')
-            text = chunk['text']
-            context_text += f"\n--- Source {i+1}: {filename} ---\n{text}\n"
+        Incorporates conversation history so the model can understand
+        follow-up questions like "explain more" or "give me examples".
+        """
+        from langchain_core.prompts import ChatPromptTemplate
 
-        system_prompt = """You are a strict document-grounded assistant. You MUST follow these rules with ZERO exceptions:
+        system_template = """You are a strict document-grounded assistant. You MUST follow these rules with ZERO exceptions:
 
 RULE 1 — ONLY USE THE CONTEXT BELOW.
 You may ONLY use information that is explicitly stated in the Context Documents provided by the user. Do NOT use your own training data, general knowledge, or common sense to fill in gaps.
@@ -100,15 +84,76 @@ When the context DOES contain the answer, provide a thorough, well-structured re
 - Use bullet points, numbered lists, or paragraphs to organize information clearly.
 - Explain concepts, relationships, and key details as if teaching someone the topic.
 - If the context contains definitions, examples, comparisons, or statistics, include them.
-- Aim for a complete answer that covers every aspect mentioned in the context documents."""
+- Aim for a complete answer that covers every aspect mentioned in the context documents.
 
-        user_prompt = f"""Context Documents:
+RULE 6 — USE CONVERSATION HISTORY FOR CONTEXT.
+If the user asks a follow-up question (e.g. "explain more", "give examples", "what about X?"), use the Conversation History below to understand what they are referring to. Still ONLY answer from the Context Documents."""
+
+        # Build conversation history string
+        history_text = ""
+        if chat_history:
+            # Keep only last 5 exchanges to avoid token overflow
+            recent = chat_history[-10:]  # 10 messages = ~5 exchanges (user+assistant)
+            for msg in recent:
+                role = msg.get("role", "")
+                if role == "user":
+                    history_text += f"\nUser: {msg.get('content', '')}"
+                elif role == "assistant":
+                    history_text += f"\nAssistant: {msg.get('answer', '')}"
+        
+        if history_text:
+            user_content = f"""Conversation History:
+{history_text}
+
+Context Documents:
+{context_text}
+
+Current Question:
+{query}
+
+Remember: If the answer is not in the Context Documents above, say "I could not find enough information in the uploaded documents." — do NOT make anything up."""
+        else:
+            user_content = f"""Context Documents:
 {context_text}
 
 Question:
 {query}
 
 Remember: If the answer is not in the Context Documents above, say "I could not find enough information in the uploaded documents." — do NOT make anything up."""
+
+        return system_template, user_content
+
+    def generate_answer(self, query: str, context_chunks: list[dict], chat_history: list[dict] = None) -> str:
+        """
+        Generates an answer from the context chunks.
+        If no chunks are provided, returns the fallback response.
+        Includes a quality gate to reject low-relevance chunks.
+        
+        Args:
+            query: The user's question.
+            context_chunks: List of retrieved document chunks.
+            chat_history: Optional list of previous messages for conversation memory.
+        """
+        fallback_response = "I could not find enough information in the uploaded documents."
+        
+        if not context_chunks:
+            return fallback_response
+        
+        # QUALITY GATE: If the best chunk is still too distant, refuse to answer.
+        # This prevents the LLM from trying to answer with irrelevant context.
+        best_distance = min(c.get("distance", 999) for c in context_chunks)
+        if best_distance > 0.75:
+            return fallback_response
+            
+        # Build the context string
+        context_text = ""
+        for i, chunk in enumerate(context_chunks):
+            filename = chunk['metadata'].get('filename', 'Unknown Source')
+            text = chunk['text']
+            context_text += f"\n--- Source {i+1}: {filename} ---\n{text}\n"
+
+        # Build prompts with conversation history
+        system_prompt, user_prompt = self._build_prompt(query, context_text, chat_history)
         
         try:
             from dotenv import dotenv_values
@@ -130,4 +175,3 @@ Remember: If the answer is not in the Context Documents above, say "I could not 
         except Exception as e:
             print(f"Error during generation: {e}")
             return f"An error occurred while generating the answer: {e}"
-

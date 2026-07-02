@@ -501,7 +501,7 @@ if query := st.chat_input("Ask something from your documents..."):
     # Generate response
     with st.chat_message("assistant"):
         with st.spinner("Reading your documents..."):
-            result = pipeline.ask(query=query, distance_threshold=distance_threshold)
+            result = pipeline.ask(query=query, distance_threshold=distance_threshold, chat_history=st.session_state.messages)
             answer = result["answer"]
             chunks = result["context_chunks"]
             
