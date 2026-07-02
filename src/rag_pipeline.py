@@ -86,6 +86,91 @@ class RAGPipeline:
         except Exception:
             pass
 
+    def _reformulate_query(self, query: str, chat_history: list[dict]) -> str:
+        """Rewrite a vague follow-up question into a standalone, specific query.
+        
+        Uses LangChain + OpenRouter to understand conversation context and 
+        produce a query that will match relevant document chunks in vector search.
+        
+        Example:
+            History: "What is IDS?" → [answer about IDS]
+            Query: "explain it more detail"
+            Output: "Explain IDS intrusion detection system types capabilities and evaluation metrics in detail"
+        """
+        if not chat_history:
+            return query
+        
+        # Build recent history (last 6 messages = ~3 exchanges)
+        recent = chat_history[-6:]
+        history_text = ""
+        for msg in recent:
+            role = msg.get("role", "")
+            if role == "user":
+                history_text += f"\nUser: {msg.get('content', '')}"
+            elif role == "assistant":
+                history_text += f"\nAssistant: {msg.get('answer', '')[:200]}"
+        
+        if not history_text.strip():
+            return query
+        
+        try:
+            from dotenv import dotenv_values
+            env_vars = dotenv_values(".env")
+            use_ollama_str = env_vars.get("USE_OLLAMA") or os.getenv("USE_OLLAMA", "false")
+            use_ollama = str(use_ollama_str).strip().lower() == "true"
+            
+            reformulation_prompt = f"""Given the conversation history below, rewrite the user's latest question into a standalone, specific search query. The query should contain the key topics being discussed so it can find relevant documents.
+
+Conversation History:
+{history_text}
+
+Latest Question: {query}
+
+Rules:
+- Output ONLY the rewritten query, nothing else.
+- Keep it concise (under 30 words).
+- Include the specific topic/subject from the conversation.
+- If the question is already specific enough, return it unchanged.
+
+Rewritten Query:"""
+
+            if use_ollama:
+                import requests
+                url = "http://localhost:11434/api/generate"
+                payload = {"model": "llama3", "prompt": reformulation_prompt, "stream": False, "options": {"temperature": 0.0}}
+                response = requests.post(url, json=payload, timeout=30)
+                response.raise_for_status()
+                reformulated = response.json().get("response", "").strip()
+            else:
+                from langchain_openai import ChatOpenAI
+                from langchain_core.messages import HumanMessage
+                
+                api_key = os.getenv("OPENROUTER_API_KEY")
+                if not api_key:
+                    return query
+                    
+                llm = ChatOpenAI(
+                    api_key=api_key,
+                    base_url="https://openrouter.ai/api/v1",
+                    model="openrouter/free",
+                    temperature=0.0,
+                    default_headers={
+                        "HTTP-Referer": "http://localhost:8501",
+                        "X-Title": "Personal RAG Assistant"
+                    }
+                )
+                response = llm.invoke([HumanMessage(content=reformulation_prompt)])
+                reformulated = response.content.strip()
+            
+            if reformulated and len(reformulated) < 200:
+                print(f"[Query Reformulation] '{query}' → '{reformulated}'")
+                return reformulated
+            return query
+            
+        except Exception as e:
+            print(f"[Query Reformulation] Failed: {e}, using original query")
+            return query
+
     def ask(self, query: str, top_k: int = 8, distance_threshold: float = 0.7, chat_history: list[dict] = None) -> dict:
         """
         Retrieves relevant context and generates an answer.
@@ -101,14 +186,19 @@ class RAGPipeline:
         if casual_reply:
             return {"answer": casual_reply, "context_chunks": []}
 
-        # 1. Retrieve chunks
+        # 1. Reformulate vague follow-up queries into specific standalone queries
+        search_query = query
+        if chat_history and len(chat_history) >= 2:
+            search_query = self._reformulate_query(query, chat_history)
+
+        # 2. Retrieve chunks using the (potentially reformulated) query
         retrieved_chunks = self.vector_store.retrieve(
-            query=query, 
+            query=search_query, 
             top_k=top_k, 
             distance_threshold=distance_threshold
         )
         
-        # 2. Generate answer with conversation history
+        # 3. Generate answer with conversation history (using original query for natural response)
         answer = self.generator.generate_answer(query, retrieved_chunks, chat_history=chat_history)
         
         return {
