@@ -5,3 +5,5 @@ pypdf
 python-dotenv
 pytest
 requests
+langchain
+langchain-openai

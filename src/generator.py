@@ -28,33 +28,32 @@ class AnswerGenerator:
             raise Exception(f"Ollama error: {e}. Make sure Ollama is installed and running!")
 
     def _generate_with_openrouter(self, system_prompt: str, user_prompt: str) -> str:
+        from langchain_openai import ChatOpenAI
+        from langchain_core.messages import SystemMessage, HumanMessage
+        
         api_key = os.getenv("OPENROUTER_API_KEY")
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY environment variable is missing.")
             
-        url = "https://openrouter.ai/api/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "http://localhost:8501", # Optional, for OpenRouter rankings
-            "X-Title": "Personal RAG Assistant" # Optional, for OpenRouter rankings
-        }
-        payload = {
-            "model": "openrouter/free",
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            "temperature": 0.0
-        }
         try:
-            response = requests.post(url, headers=headers, json=payload, timeout=120)
-            if response.status_code != 200:
-                raise Exception(f"Status {response.status_code}: {response.text}")
-            response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"]
+            llm = ChatOpenAI(
+                api_key=api_key,
+                base_url="https://openrouter.ai/api/v1",
+                model="openrouter/free",
+                temperature=0.0,
+                default_headers={
+                    "HTTP-Referer": "http://localhost:8501",
+                    "X-Title": "Personal RAG Assistant"
+                }
+            )
+            messages = [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_prompt)
+            ]
+            response = llm.invoke(messages)
+            return response.content
         except Exception as e:
-            raise Exception(f"OpenRouter API error: {e}")
+            raise Exception(f"LangChain OpenRouter error: {e}")
 
     def generate_answer(self, query: str, context_chunks: list[dict]) -> str:
         """
