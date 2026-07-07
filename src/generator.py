@@ -1,6 +1,7 @@
 import os
 import requests
 
+from src.context_utils import truncate_history
 
 OLLAMA_MODEL = "llama3" # You can also use "phi3" or "mistral"
 
@@ -33,6 +34,12 @@ class AnswerGenerator:
         
         api_key = os.getenv("OPENROUTER_API_KEY")
         if not api_key:
+            try:
+                import streamlit as st
+                api_key = st.secrets.get("OPENROUTER_API_KEY")
+            except Exception:
+                pass
+        if not api_key:
             raise ValueError("OPENROUTER_API_KEY environment variable is missing.")
             
         try:
@@ -55,9 +62,9 @@ class AnswerGenerator:
         except Exception as e:
             raise Exception(f"LangChain OpenRouter error: {e}")
 
-    def _build_prompt(self, query: str, context_text: str, chat_history: list[dict] = None) -> tuple[str, str]:
+    def _build_prompt(self, query: str, context_text: str, chat_history: list[dict] = None, summary: str = None) -> tuple[str, str]:
         """Build system and user prompts using ChatPromptTemplate style.
-        
+
         Incorporates conversation history so the model can understand
         follow-up questions like "explain more" or "give me examples".
         """
@@ -89,20 +96,22 @@ When the context DOES contain the answer, provide a thorough, well-structured re
 RULE 6 — USE CONVERSATION HISTORY FOR CONTEXT.
 If the user asks a follow-up question (e.g. "explain more", "give examples", "what about X?"), use the Conversation History below to understand what they are referring to. Still ONLY answer from the Context Documents."""
 
-        # Build conversation history string
+        # Build conversation history string, budgeted by estimated tokens rather
+        # than a fixed message count so long messages don't blow out the prompt.
         history_text = ""
         if chat_history:
-            # Keep only last 5 exchanges to avoid token overflow
-            recent = chat_history[-10:]  # 10 messages = ~5 exchanges (user+assistant)
+            recent = truncate_history(chat_history, max_tokens=1500)
             for msg in recent:
                 role = msg.get("role", "")
                 if role == "user":
                     history_text += f"\nUser: {msg.get('content', '')}"
                 elif role == "assistant":
                     history_text += f"\nAssistant: {msg.get('answer', '')}"
-        
+
+        summary_block = f"\n\nEarlier Conversation Summary (background context, may be older than the History below):\n{summary}\n" if summary else ""
+
         if history_text:
-            user_content = f"""Conversation History:
+            user_content = f"""{summary_block}Conversation History:
 {history_text}
 
 Context Documents:
@@ -113,7 +122,7 @@ Current Question:
 
 Remember: If the answer is not in the Context Documents above, say "I could not find enough information in the uploaded documents." — do NOT make anything up."""
         else:
-            user_content = f"""Context Documents:
+            user_content = f"""{summary_block}Context Documents:
 {context_text}
 
 Question:
@@ -123,28 +132,35 @@ Remember: If the answer is not in the Context Documents above, say "I could not 
 
         return system_template, user_content
 
-    def generate_answer(self, query: str, context_chunks: list[dict], chat_history: list[dict] = None) -> str:
+    def _is_ollama_enabled(self) -> bool:
+        from dotenv import dotenv_values
+        env_vars = dotenv_values(".env")
+        use_ollama_str = env_vars.get("USE_OLLAMA") or os.getenv("USE_OLLAMA", "false")
+        return str(use_ollama_str).strip().lower() == "true"
+
+    def generate_answer(self, query: str, context_chunks: list[dict], chat_history: list[dict] = None, summary: str = None) -> str:
         """
         Generates an answer from the context chunks.
         If no chunks are provided, returns the fallback response.
         Includes a quality gate to reject low-relevance chunks.
-        
+
         Args:
             query: The user's question.
             context_chunks: List of retrieved document chunks.
             chat_history: Optional list of previous messages for conversation memory.
+            summary: Optional rolling summary of older conversation turns (long-term memory).
         """
         fallback_response = "I could not find enough information in the uploaded documents."
-        
+
         if not context_chunks:
             return fallback_response
-        
+
         # QUALITY GATE: If the best chunk is still too distant, refuse to answer.
         # This prevents the LLM from trying to answer with irrelevant context.
         best_distance = min(c.get("distance", 999) for c in context_chunks)
         if best_distance > 0.75:
             return fallback_response
-            
+
         # Build the context string
         context_text = ""
         for i, chunk in enumerate(context_chunks):
@@ -153,25 +169,59 @@ Remember: If the answer is not in the Context Documents above, say "I could not 
             context_text += f"\n--- Source {i+1}: {filename} ---\n{text}\n"
 
         # Build prompts with conversation history
-        system_prompt, user_prompt = self._build_prompt(query, context_text, chat_history)
-        
+        system_prompt, user_prompt = self._build_prompt(query, context_text, chat_history, summary=summary)
+
         try:
-            from dotenv import dotenv_values
-            env_vars = dotenv_values(".env")
-            use_ollama_str = env_vars.get("USE_OLLAMA") or os.getenv("USE_OLLAMA", "false")
-            use_ollama = str(use_ollama_str).strip().lower() == "true"
-            
+            use_ollama = self._is_ollama_enabled()
+
             if use_ollama:
                 # Ollama uses a single prompt, so combine system + user
                 full_prompt = system_prompt + "\n\n" + user_prompt
                 answer = self._generate_with_ollama(full_prompt)
             else:
                 answer = self._generate_with_openrouter(system_prompt, user_prompt)
-                
+
             if not answer:
                 return fallback_response
             return answer
-                
+
         except Exception as e:
             print(f"Error during generation: {e}")
             return f"An error occurred while generating the answer: {e}"
+
+    def summarize_conversation(self, messages: list[dict]) -> str:
+        """Summarizes older conversation turns into a short paragraph for long-term memory.
+
+        Used so a long chat session can "remember" its early topics without
+        having to keep sending the full transcript to the model on every turn.
+        """
+        if not messages:
+            return ""
+
+        convo_text = ""
+        for msg in messages:
+            role = msg.get("role", "")
+            if role == "user":
+                convo_text += f"\nUser: {msg.get('content', '')}"
+            elif role == "assistant":
+                convo_text += f"\nAssistant: {msg.get('answer', '')[:300]}"
+
+        if not convo_text.strip():
+            return ""
+
+        system_prompt = "You summarize conversations concisely and factually for future reference."
+        user_prompt = f"""Summarize the conversation below in 3-5 sentences, capturing the main topics discussed and any key facts established. This summary will be used as background context to continue the conversation later.
+
+Conversation:
+{convo_text}
+
+Summary:"""
+
+        try:
+            if self._is_ollama_enabled():
+                full_prompt = system_prompt + "\n\n" + user_prompt
+                return self._generate_with_ollama(full_prompt).strip()
+            return self._generate_with_openrouter(system_prompt, user_prompt).strip()
+        except Exception as e:
+            print(f"[Summarization] Failed: {e}")
+            return ""

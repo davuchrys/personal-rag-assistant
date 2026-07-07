@@ -1,18 +1,29 @@
 import os
+import hashlib
 from src.document_loader import DocumentLoader
 from src.chunker import TextChunker
 from src.vector_store import VectorStore
 from src.generator import AnswerGenerator
+from src.context_utils import truncate_history
 
 class RAGPipeline:
     """Orchestrates the entire RAG workflow."""
-    
+
+    # Long-term memory (rolling summary) tuning:
+    # once history grows past SUMMARY_TRIGGER messages, fold everything
+    # older than the last SUMMARY_KEEP_RECENT messages into a summary.
+    SUMMARY_TRIGGER = 20
+    SUMMARY_KEEP_RECENT = 10
+
     def __init__(self, vector_db_path: str = "./vector_db"):
         self.chunker = TextChunker(chunk_size=1000, overlap=200)
         self.vector_store = VectorStore(persist_directory=vector_db_path)
         self.generator = AnswerGenerator()
         # Store path for clearing later
         self.persist_directory = vector_db_path
+        # In-memory cache for query reformulation: avoids re-calling the LLM
+        # for an identical (query, recent-history) pair within the same session.
+        self._reformulation_cache = {}
 
     def get_document_count(self) -> int:
         """Returns the number of chunks currently stored in the vector database."""
@@ -99,9 +110,10 @@ class RAGPipeline:
         """
         if not chat_history:
             return query
-        
-        # Build recent history (last 6 messages = ~3 exchanges)
-        recent = chat_history[-6:]
+
+        # Build recent history, budgeted by estimated tokens (matches the
+        # budgeting approach used for the main answer prompt in generator.py).
+        recent = truncate_history(chat_history, max_tokens=600)
         history_text = ""
         for msg in recent:
             role = msg.get("role", "")
@@ -109,10 +121,16 @@ class RAGPipeline:
                 history_text += f"\nUser: {msg.get('content', '')}"
             elif role == "assistant":
                 history_text += f"\nAssistant: {msg.get('answer', '')[:200]}"
-        
+
         if not history_text.strip():
             return query
-        
+
+        # Skip the LLM call entirely if we've already reformulated this exact
+        # (query, recent-history) pair before in this session.
+        cache_key = hashlib.md5(f"{query}||{history_text}".encode("utf-8")).hexdigest()
+        if cache_key in self._reformulation_cache:
+            return self._reformulation_cache[cache_key]
+
         try:
             from dotenv import dotenv_values
             env_vars = dotenv_values(".env")
@@ -170,10 +188,11 @@ Rewritten Query:"""
                 response = llm.invoke([HumanMessage(content=reformulation_prompt)])
                 reformulated = response.content.strip()
             
-            if reformulated and len(reformulated) < 200:
-                print(f"[Query Reformulation] '{query}' -> '{reformulated}'")
-                return reformulated
-            return query
+            result = reformulated if (reformulated and len(reformulated) < 200) else query
+            if result != query:
+                print(f"[Query Reformulation] '{query}' -> '{result}'")
+            self._reformulation_cache[cache_key] = result
+            return result
             
         except Exception as e:
             import traceback
@@ -181,15 +200,39 @@ Rewritten Query:"""
             traceback.print_exc()
             return query
 
-    def ask(self, query: str, top_k: int = 8, distance_threshold: float = 0.7, chat_history: list[dict] = None) -> dict:
+    def maybe_update_summary(self, messages: list[dict], summary_state: dict = None) -> dict:
+        """Refreshes the rolling long-term summary once a session's history grows long.
+
+        summary_state: {"text": str, "covered": int} where 'covered' is how many
+        messages (from the start) are already folded into 'text'. Only calls the
+        LLM when there's enough *new* uncovered history to be worth summarizing —
+        not on every single turn.
+        """
+        summary_state = summary_state or {"text": "", "covered": 0}
+        total = len(messages)
+
+        if total - summary_state.get("covered", 0) <= self.SUMMARY_KEEP_RECENT:
+            return summary_state
+        if total <= self.SUMMARY_TRIGGER:
+            return summary_state
+
+        older = messages[: total - self.SUMMARY_KEEP_RECENT]
+        new_summary = self.generator.summarize_conversation(older)
+        if not new_summary:
+            return summary_state
+
+        return {"text": new_summary, "covered": len(older)}
+
+    def ask(self, query: str, top_k: int = 8, distance_threshold: float = 0.7, chat_history: list[dict] = None, summary: str = None) -> dict:
         """
         Retrieves relevant context and generates an answer.
-        distance_threshold of 0.7 is a strict default for cosine distance 
+        distance_threshold of 0.7 is a strict default for cosine distance
         (values closer to 0 are better). Chunks above this are discarded.
         Returns the answer and the retrieved chunks used for context.
-        
+
         Args:
             chat_history: Optional list of previous messages for conversation memory.
+            summary: Optional rolling summary of older conversation turns (long-term memory).
         """
         # 0. Handle casual / conversational messages without hitting retrieval
         casual_reply = self._is_casual_message(query)
@@ -203,14 +246,14 @@ Rewritten Query:"""
 
         # 2. Retrieve chunks using the (potentially reformulated) query
         retrieved_chunks = self.vector_store.retrieve(
-            query=search_query, 
-            top_k=top_k, 
+            query=search_query,
+            top_k=top_k,
             distance_threshold=distance_threshold
         )
-        
+
         # 3. Generate answer with conversation history (using original query for natural response)
-        answer = self.generator.generate_answer(query, retrieved_chunks, chat_history=chat_history)
-        
+        answer = self.generator.generate_answer(query, retrieved_chunks, chat_history=chat_history, summary=summary)
+
         return {
             "answer": answer,
             "context_chunks": retrieved_chunks

@@ -179,19 +179,24 @@ pipeline = get_pipeline(USERNAME)
 CHATS_DIR = f"data/chats/{USERNAME}"
 os.makedirs(CHATS_DIR, exist_ok=True)
 
-def save_chat(session_id, messages):
+def save_chat(session_id, messages, summary_state=None):
     if not messages:
         return
     file_path = os.path.join(CHATS_DIR, f"{session_id}.json")
+    payload = {"messages": messages, "summary": summary_state or {"text": "", "covered": 0}}
     with open(file_path, "w", encoding="utf-8") as f:
-        json.dump(messages, f, ensure_ascii=False, indent=2)
+        json.dump(payload, f, ensure_ascii=False, indent=2)
 
 def load_chat(session_id):
+    """Returns (messages, summary_state). Handles old files that were a plain list."""
     file_path = os.path.join(CHATS_DIR, f"{session_id}.json")
     if os.path.exists(file_path):
         with open(file_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return []
+            data = json.load(f)
+        if isinstance(data, list):
+            return data, {"text": "", "covered": 0}
+        return data.get("messages", []), data.get("summary", {"text": "", "covered": 0})
+    return [], {"text": "", "covered": 0}
 
 def get_all_chats():
     chats = []
@@ -217,7 +222,7 @@ if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())
 
 if "messages" not in st.session_state:
-    st.session_state.messages = load_chat(st.session_state.session_id)
+    st.session_state.messages, st.session_state.summary_state = load_chat(st.session_state.session_id)
 
 # --- Clean, Minimal CSS ---
 st.markdown("""
@@ -360,27 +365,29 @@ with st.sidebar:
         st.session_state.username = None
         st.session_state.session_id = str(uuid.uuid4())
         st.session_state.messages = []
+        st.session_state.summary_state = {"text": "", "covered": 0}
         st.rerun()
-        
+
     st.divider()
-    
+
     # New Chat Button
     if st.button("➕ New Chat", use_container_width=True, type="primary"):
         st.session_state.session_id = str(uuid.uuid4())
         st.session_state.messages = []
+        st.session_state.summary_state = {"text": "", "covered": 0}
         st.rerun()
-        
+
     st.markdown('<div class="sidebar-section" style="margin-top:1rem;">Past Chats</div>', unsafe_allow_html=True)
     past_chats = get_all_chats()
     for chat in past_chats:
         is_active = (chat["session_id"] == st.session_state.get("session_id"))
         btn_type = "primary" if is_active else "secondary"
-        
+
         col1, col2 = st.columns([0.85, 0.15], gap="small")
         with col1:
             if st.button(chat['title'], key=f"chat_{chat['session_id']}", use_container_width=True, type=btn_type):
                 st.session_state.session_id = chat["session_id"]
-                st.session_state.messages = load_chat(chat["session_id"])
+                st.session_state.messages, st.session_state.summary_state = load_chat(chat["session_id"])
                 st.rerun()
         with col2:
             if st.button("✕", key=f"del_{chat['session_id']}", use_container_width=True, type="tertiary"):
@@ -390,6 +397,7 @@ with st.sidebar:
                 if is_active:
                     st.session_state.session_id = str(uuid.uuid4())
                     st.session_state.messages = []
+                    st.session_state.summary_state = {"text": "", "covered": 0}
                 st.rerun()
 
     st.divider()
@@ -430,6 +438,7 @@ with st.sidebar:
             pipeline.clear_index()
             st.success("✅ Index cleared. You can now upload new documents.")
             st.session_state.messages = []
+            st.session_state.summary_state = {"text": "", "covered": 0}
             st.rerun()
     
     st.divider()
@@ -442,6 +451,15 @@ with st.sidebar:
             help="Lower = stricter matching. Higher = more lenient."
         )
         debug_mode = st.toggle("Show retrieved chunks", help="Displays the exact text chunks used to answer.")
+
+        if debug_mode:
+            summary_state = st.session_state.get("summary_state", {"text": "", "covered": 0})
+            st.markdown('<div class="sidebar-section" style="margin-top:1rem;">Long-term Memory Summary</div>', unsafe_allow_html=True)
+            st.caption(f"Messages folded into summary: {summary_state.get('covered', 0)} / {len(st.session_state.get('messages', []))}")
+            if summary_state.get("text"):
+                st.info(summary_state["text"])
+            else:
+                st.caption("No summary yet — appears once this chat passes 20 messages.")
 
 # --- Main Content ---
 
@@ -494,14 +512,19 @@ for msg in st.session_state.messages:
 if query := st.chat_input("Ask something from your documents..."):
     # Show user message
     st.session_state.messages.append({"role": "user", "content": query})
-    save_chat(st.session_state.session_id, st.session_state.messages)
+    save_chat(st.session_state.session_id, st.session_state.messages, st.session_state.summary_state)
     with st.chat_message("user"):
         st.write(query)
-    
+
     # Generate response
     with st.chat_message("assistant"):
         with st.spinner("Reading your documents..."):
-            result = pipeline.ask(query=query, distance_threshold=distance_threshold, chat_history=st.session_state.messages)
+            result = pipeline.ask(
+                query=query,
+                distance_threshold=distance_threshold,
+                chat_history=st.session_state.messages,
+                summary=st.session_state.summary_state.get("text"),
+            )
             answer = result["answer"]
             chunks = result["context_chunks"]
             
@@ -536,4 +559,8 @@ if query := st.chat_input("Ask something from your documents..."):
                 "sources": sources,
                 "chunks": chunks
             })
-            save_chat(st.session_state.session_id, st.session_state.messages)
+            # Refresh the rolling long-term summary once history grows long enough
+            st.session_state.summary_state = pipeline.maybe_update_summary(
+                st.session_state.messages, st.session_state.summary_state
+            )
+            save_chat(st.session_state.session_id, st.session_state.messages, st.session_state.summary_state)
