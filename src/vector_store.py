@@ -43,6 +43,22 @@ class VectorStore:
             from sentence_transformers import CrossEncoder
             self._reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
 
+    def clear(self) -> None:
+        """Deletes all indexed chunks by dropping and recreating the collection.
+
+        Safer than deleting the persistence directory on disk: this client
+        still holds an open connection to files inside it, and removing a
+        directory while a file inside it is open can fail (especially on
+        Windows, with PermissionError).
+        """
+        name = self.collection.name
+        self.client.delete_collection(name=name)
+        self.collection = self.client.get_or_create_collection(
+            name=name,
+            embedding_function=self.embedding_function,
+            metadata={"hnsw:space": "cosine"}
+        )
+
     def get_indexed_files(self) -> list[str]:
         """Returns a list of unique filenames currently indexed."""
         if self.collection.count() == 0:

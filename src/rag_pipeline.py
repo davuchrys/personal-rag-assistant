@@ -27,8 +27,6 @@ class RAGPipeline:
         self.chunker = TextChunker(chunk_size=1000, overlap=200)
         self.vector_store = VectorStore(persist_directory=vector_db_path)
         self.generator = AnswerGenerator()
-        # Store path for clearing later
-        self.persist_directory = vector_db_path
         # In-memory cache for query reformulation: avoids re-calling the LLM
         # for an identical (query, recent-history) pair within the same session.
         self._reformulation_cache = {}
@@ -116,15 +114,10 @@ class RAGPipeline:
         return None
 
     def clear_index(self):
-        """Deletes the persistent vector store and reinitializes the collection.
+        """Deletes all indexed chunks and resets the collection.
         Used by the UI to reset indexed documents.
         """
-        import shutil
-        # Remove the persistence directory if it exists
-        if os.path.isdir(self.persist_directory):
-            shutil.rmtree(self.persist_directory)
-        # Re‑create a fresh VectorStore instance
-        self.vector_store = VectorStore(persist_directory=self.persist_directory)
+        self.vector_store.clear()
         # Reset any session state flags that indicate indexing has occurred
         try:
             import streamlit as st
