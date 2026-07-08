@@ -1,4 +1,5 @@
 import os
+import time
 import hashlib
 from src.document_loader import DocumentLoader
 from src.chunker import TextChunker
@@ -15,6 +16,13 @@ class RAGPipeline:
     SUMMARY_TRIGGER = 20
     SUMMARY_KEEP_RECENT = 10
 
+    # GUARDRAIL: caps how many questions a user can ask in a sliding window,
+    # to prevent runaway API cost/abuse. One RAGPipeline instance = one user
+    # (see get_pipeline() in app.py, cached per-username), so instance-level
+    # state is sufficient — no shared store needed.
+    RATE_LIMIT_MAX_REQUESTS = 10
+    RATE_LIMIT_WINDOW_SECONDS = 60
+
     def __init__(self, vector_db_path: str = "./vector_db"):
         self.chunker = TextChunker(chunk_size=1000, overlap=200)
         self.vector_store = VectorStore(persist_directory=vector_db_path)
@@ -24,6 +32,18 @@ class RAGPipeline:
         # In-memory cache for query reformulation: avoids re-calling the LLM
         # for an identical (query, recent-history) pair within the same session.
         self._reformulation_cache = {}
+        self._request_timestamps = []
+
+    def _check_rate_limit(self) -> bool:
+        """Returns True if this request is within the rate limit, False if it should be rejected."""
+        now = time.time()
+        self._request_timestamps = [
+            t for t in self._request_timestamps if now - t < self.RATE_LIMIT_WINDOW_SECONDS
+        ]
+        if len(self._request_timestamps) >= self.RATE_LIMIT_MAX_REQUESTS:
+            return False
+        self._request_timestamps.append(now)
+        return True
 
     def get_document_count(self) -> int:
         """Returns the number of chunks currently stored in the vector database."""
@@ -238,6 +258,16 @@ Rewritten Query:"""
         casual_reply = self._is_casual_message(query)
         if casual_reply:
             return {"answer": casual_reply, "context_chunks": []}
+
+        # 0.5 GUARDRAIL: reject if this user is calling the LLM too frequently
+        if not self._check_rate_limit():
+            return {
+                "answer": (
+                    f"You're sending questions too quickly. Please wait a moment and try again "
+                    f"(limit: {self.RATE_LIMIT_MAX_REQUESTS} questions per {self.RATE_LIMIT_WINDOW_SECONDS} seconds)."
+                ),
+                "context_chunks": [],
+            }
 
         # 1. Reformulate vague follow-up queries into specific standalone queries
         search_query = query

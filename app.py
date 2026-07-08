@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 import hashlib
+import bcrypt
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -28,6 +29,10 @@ st.set_page_config(page_title="RAG Assistant", page_icon="📎", layout="wide")
 SESSIONS_FILE = "data/sessions.json"
 os.makedirs("data", exist_ok=True)
 
+# GUARDRAIL: reject uploads above this size to avoid excessive memory use
+# during PDF parsing / embedding, and to cap per-user storage growth.
+MAX_UPLOAD_SIZE_MB = 20
+
 # ---- Supabase Auth ----
 @st.cache_resource
 def _get_supabase():
@@ -44,7 +49,25 @@ def _get_supabase():
     return create_client(url, key)
 
 def _hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Bcrypt is salted per-password and deliberately slow, unlike plain SHA256."""
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+def _verify_password(password: str, stored_hash: str) -> bool:
+    """Verifies a password against a stored hash.
+
+    Supports legacy unsalted SHA256 hashes (from before the bcrypt migration)
+    so existing accounts keep working — a successful legacy match triggers a
+    transparent re-hash to bcrypt in the login flow below.
+    """
+    if stored_hash.startswith(("$2a$", "$2b$", "$2y$")):
+        try:
+            return bcrypt.checkpw(password.encode(), stored_hash.encode())
+        except ValueError:
+            return False
+    return hashlib.sha256(password.encode()).hexdigest() == stored_hash
+
+def _is_legacy_hash(stored_hash: str) -> bool:
+    return not stored_hash.startswith(("$2a$", "$2b$", "$2y$"))
 
 def _load_users() -> dict:
     """Load all users from Supabase. Falls back to empty dict if unavailable."""
@@ -67,6 +90,16 @@ def _save_user(username: str, password_hash: str) -> bool:
         return True
     except Exception:
         return False
+
+def _update_user_password(username: str, password_hash: str) -> None:
+    """Updates a user's stored hash. Used to migrate legacy SHA256 hashes to bcrypt on login."""
+    sb = _get_supabase()
+    if sb is None:
+        return
+    try:
+        sb.table("users").update({"password_hash": password_hash}).eq("username", username).execute()
+    except Exception:
+        pass
 
 def _create_session(username: str) -> str:
     """Create a session token and persist it to Supabase."""
@@ -138,9 +171,12 @@ if "username" not in st.session_state or not st.session_state.username:
                         st.error("Please enter both username and password.")
                     else:
                         users = _load_users()
-                        if u not in users or users[u] != _hash_password(login_pass):
+                        if u not in users or not _verify_password(login_pass, users[u]):
                             st.error("Invalid username or password.")
                         else:
+                            # Transparently migrate legacy SHA256 hashes to bcrypt on successful login
+                            if _is_legacy_hash(users[u]):
+                                _update_user_password(u, _hash_password(login_pass))
                             _login_user(u)
                             st.rerun()
 
@@ -414,18 +450,28 @@ with st.sidebar:
     if uploaded_files:
         for f in uploaded_files:
             st.markdown(f'<div class="file-item">📄 {f.name}</div>', unsafe_allow_html=True)
-        
+
         if st.button("Index Documents", use_container_width=True):
             file_paths = []
+            oversized = []
             for file in uploaded_files:
+                # GUARDRAIL: reject oversized uploads before writing them to disk
+                # or feeding them into the (memory-hungry) PDF/embedding pipeline.
+                if file.size > MAX_UPLOAD_SIZE_MB * 1024 * 1024:
+                    oversized.append(file.name)
+                    continue
                 file_path = os.path.join("data", file.name)
                 with open(file_path, "wb") as f_out:
                     f_out.write(file.getbuffer())
                 file_paths.append(file_path)
-            
-            with st.spinner("Indexing..."):
-                num_chunks = pipeline.ingest_files(file_paths)
-                st.success(f"Done — {num_chunks} chunks indexed.")
+
+            if oversized:
+                st.error(f"Skipped (over {MAX_UPLOAD_SIZE_MB}MB limit): {', '.join(oversized)}")
+
+            if file_paths:
+                with st.spinner("Indexing..."):
+                    num_chunks = pipeline.ingest_files(file_paths)
+                    st.success(f"Done — {num_chunks} chunks indexed.")
 
     # Show indexed documents and management options
     indexed_files_db = pipeline.get_indexed_files()
