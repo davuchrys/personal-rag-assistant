@@ -60,16 +60,22 @@ class RAGPipeline:
         """
 
         all_chunks = []
-        
+
         for file_path in file_paths:
             print(f"Processing {file_path}...")
+            filename = os.path.basename(file_path)
+
+            # 0. De-dup: drop any chunks already indexed for this filename so
+            # re-uploading the same document replaces it instead of duplicating it.
+            self.vector_store.delete_by_filename(filename)
+
             # 1. Load document
             docs = DocumentLoader.load_document(file_path)
-            
+
             # 2. Chunk document
             chunks = self.chunker.chunk_documents(docs)
             all_chunks.extend(chunks)
-            
+
         # 3. Store chunks
         if all_chunks:
             self.vector_store.add_chunks(all_chunks)

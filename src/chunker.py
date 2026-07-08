@@ -28,18 +28,23 @@ class TextChunker:
         and returns a list of chunk dicts.
         """
         chunked_docs = []
+        chunk_index = 0
         for doc in documents:
             text = doc['text']
             metadata = doc['metadata']
-            
+
             chunks = self.splitter.split_text(text)
             for chunk in chunks:
                 if chunk.strip():
                     # We create a shallow copy of metadata so we don't accidentally mutate
                     chunk_meta = dict(metadata)
+                    # Running index across this document's chunks — useful for
+                    # debugging retrieval order and for stable per-file IDs.
+                    chunk_meta["chunk_index"] = chunk_index
+                    chunk_index += 1
                     chunked_docs.append({
                         "text": chunk,
                         "metadata": chunk_meta
                     })
-                    
+
         return chunked_docs

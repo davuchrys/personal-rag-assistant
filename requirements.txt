@@ -10,3 +10,4 @@ langchain-openai
 langchain-text-splitters
 supabase
 bcrypt
+rank_bm25

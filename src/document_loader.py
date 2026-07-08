@@ -24,24 +24,24 @@ class DocumentLoader:
             
     @staticmethod
     def _load_pdf(file_path: str, metadata: dict) -> list[dict]:
+        """Returns one document per PDF page, so downstream chunks retain
+        page-number metadata for more precise citations."""
         docs = []
         try:
             with open(file_path, "rb") as file:
                 reader = pypdf.PdfReader(file)
-                full_text = ""
-                for page in reader.pages:
+                for page_num, page in enumerate(reader.pages, start=1):
                     text = page.extract_text()
-                    if text:
-                        full_text += text + "\n"
-                
-                if full_text.strip():
-                    docs.append({
-                        "text": full_text,
-                        "metadata": metadata
-                    })
+                    if text and text.strip():
+                        page_metadata = dict(metadata)
+                        page_metadata["page"] = page_num
+                        docs.append({
+                            "text": text,
+                            "metadata": page_metadata
+                        })
         except Exception as e:
             print(f"Error loading PDF {file_path}: {e}")
-            
+
         return docs
 
     @staticmethod

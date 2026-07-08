@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./venv/Scripts/python.exe -m pip show rank_bm25)",
+      "Bash(./venv/Scripts/python.exe -m pip install rank_bm25)",
+      "Bash(python -m py_compile src/document_loader.py src/vector_store.py src/chunker.py src/rag_pipeline.py)",
+      "Bash(./venv/Scripts/python.exe -m pip show reportlab)",
+      "Bash(./venv/Scripts/python.exe -c ' *)"
+    ]
+  }
+}
