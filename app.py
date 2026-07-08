@@ -481,11 +481,14 @@ with st.sidebar:
             st.markdown(f'<div class="file-item" style="border-left: 3px solid #4caf50;">✓ {fname}</div>', unsafe_allow_html=True)
             
         if st.button("🗑️ Clear Indexed Data", use_container_width=True):
-            pipeline.clear_index()
-            st.success("✅ Index cleared. You can now upload new documents.")
-            st.session_state.messages = []
-            st.session_state.summary_state = {"text": "", "covered": 0}
-            st.rerun()
+            try:
+                pipeline.clear_index()
+                st.success("✅ Index cleared. You can now upload new documents.")
+                st.session_state.messages = []
+                st.session_state.summary_state = {"text": "", "covered": 0}
+                st.rerun()
+            except Exception as e:
+                st.error(f"Failed to clear index: {e}")
     
     st.divider()
     

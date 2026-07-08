@@ -44,20 +44,20 @@ class VectorStore:
             self._reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
 
     def clear(self) -> None:
-        """Deletes all indexed chunks by dropping and recreating the collection.
+        """Deletes all indexed chunks by removing every record by id.
 
-        Safer than deleting the persistence directory on disk: this client
-        still holds an open connection to files inside it, and removing a
-        directory while a file inside it is open can fail (especially on
-        Windows, with PermissionError).
+        Deliberately avoids both (a) deleting the persistence directory on
+        disk while this client still has an open connection to files inside
+        it (fails on Windows with PermissionError), and (b) chromadb's
+        delete_collection(), which has been observed to raise an internal
+        error in some hosted deployment environments. Deleting by id is the
+        most basic, broadly-supported operation, so it's the safest choice here.
         """
-        name = self.collection.name
-        self.client.delete_collection(name=name)
-        self.collection = self.client.get_or_create_collection(
-            name=name,
-            embedding_function=self.embedding_function,
-            metadata={"hnsw:space": "cosine"}
-        )
+        if self.collection.count() == 0:
+            return
+        all_ids = self.collection.get()["ids"]
+        if all_ids:
+            self.collection.delete(ids=all_ids)
 
     def get_indexed_files(self) -> list[str]:
         """Returns a list of unique filenames currently indexed."""
