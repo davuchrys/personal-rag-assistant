@@ -59,6 +59,17 @@ class RAGPipeline:
         Returns the number of chunks added.
         """
 
+        # De-dup within this batch first: if the same filename appears more
+        # than once (e.g. selected twice in the uploader), only process it
+        # once. delete_by_filename() below only protects against chunks
+        # already persisted from a *previous* call — chunks from this call
+        # are only written at the very end, so duplicates within the same
+        # batch would otherwise slip past it.
+        deduped_by_filename = {}
+        for file_path in file_paths:
+            deduped_by_filename[os.path.basename(file_path)] = file_path
+        file_paths = list(deduped_by_filename.values())
+
         all_chunks = []
 
         for file_path in file_paths:
