@@ -23,6 +23,21 @@ def format_confidence(distance: float):
     return "Insufficient evidence", "#9e9e9e"
 
 
+def render_retrieval_trace(trace: list[dict]):
+    """Shows the agentic corrective-retry decision trace, if a retry actually
+    happened (a single-attempt trace means the traditional single-pass path
+    was enough, so there's nothing agentic to show)."""
+    if not trace or len(trace) <= 1:
+        return
+    st.markdown("**🤖 Agentic retry triggered** (first attempt found nothing, pipeline widened the search):")
+    for step in trace:
+        st.caption(
+            f"Attempt {step['attempt']}: top_k={step['top_k']}, "
+            f"distance_threshold={step['distance_threshold']:.2f} → "
+            f"{step['chunks_found']} chunks retrieved → {step['outcome']}"
+        )
+
+
 # --- Setup ---
 st.set_page_config(page_title="RAG Assistant", page_icon="📎", layout="wide")
 
@@ -547,9 +562,10 @@ for msg in st.session_state.messages:
                 st.markdown(f"**Sources:** {sources_html}", unsafe_allow_html=True)
             
             # Debug chunks inside the message
-            if msg.get("chunks") and debug_mode:
+            if debug_mode and (msg.get("chunks") or msg.get("retrieval_trace")):
                 with st.expander("Retrieved chunks"):
-                    for i, chunk in enumerate(msg["chunks"]):
+                    render_retrieval_trace(msg.get("retrieval_trace", []))
+                    for i, chunk in enumerate(msg.get("chunks", [])):
                         filename = chunk['metadata'].get('filename', 'Unknown')
                         dist = chunk['distance']
                         st.markdown(f'<div class="chunk-meta">Chunk {i+1} · {filename} · distance: {dist:.4f}</div>', unsafe_allow_html=True)
@@ -576,9 +592,10 @@ if query := st.chat_input("Ask something from your documents..."):
             )
             answer = result["answer"]
             chunks = result["context_chunks"]
-            
-            fallback = "I could not find enough information in the uploaded documents."
-            
+            retrieval_trace = result.get("retrieval_trace", [])
+
+            fallback = pipeline.generator.FALLBACK_RESPONSE
+
             if fallback in answer:
                 st.warning(answer)
                 sources = []
@@ -591,8 +608,9 @@ if query := st.chat_input("Ask something from your documents..."):
                     sources_html = " ".join([f'<span class="source-tag">📄 {s}</span>' for s in sources])
                     st.markdown(f"**Sources:** {sources_html}", unsafe_allow_html=True)
             
-            if chunks and debug_mode:
+            if debug_mode and (chunks or retrieval_trace):
                 with st.expander("Retrieved chunks"):
+                    render_retrieval_trace(retrieval_trace)
                     for i, chunk in enumerate(chunks):
                         filename = chunk['metadata'].get('filename', 'Unknown')
                         dist = chunk['distance']
@@ -600,13 +618,14 @@ if query := st.chat_input("Ask something from your documents..."):
                         st.text(chunk['text'][:500])
                         if i < len(chunks) - 1:
                             st.divider()
-            
+
             # Save to history
             st.session_state.messages.append({
                 "role": "assistant",
                 "answer": answer,
                 "sources": sources,
-                "chunks": chunks
+                "chunks": chunks,
+                "retrieval_trace": retrieval_trace,
             })
             # Refresh the rolling long-term summary once history grows long enough
             st.session_state.summary_state = pipeline.maybe_update_summary(

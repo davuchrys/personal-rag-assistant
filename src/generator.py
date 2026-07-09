@@ -51,7 +51,9 @@ def _grounding_score(answer: str, context_text: str) -> float:
 
 class AnswerGenerator:
     """Generates answers using OpenRouter (via LangChain) or local Ollama based on retrieved context."""
-    
+
+    FALLBACK_RESPONSE = "I could not find enough information in the uploaded documents."
+
     def __init__(self):
         pass
 
@@ -197,7 +199,7 @@ Remember: If the answer is not in the Context Documents above, say "I could not 
             chat_history: Optional list of previous messages for conversation memory.
             summary: Optional rolling summary of older conversation turns (long-term memory).
         """
-        fallback_response = "I could not find enough information in the uploaded documents."
+        fallback_response = self.FALLBACK_RESPONSE
 
         if not context_chunks:
             return fallback_response

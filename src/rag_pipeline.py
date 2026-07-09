@@ -267,7 +267,7 @@ Rewritten Query:"""
         # 0. Handle casual / conversational messages without hitting retrieval
         casual_reply = self._is_casual_message(query)
         if casual_reply:
-            return {"answer": casual_reply, "context_chunks": []}
+            return {"answer": casual_reply, "context_chunks": [], "retrieval_trace": []}
 
         # 0.5 GUARDRAIL: reject if this user is calling the LLM too frequently
         if not self._check_rate_limit():
@@ -277,6 +277,7 @@ Rewritten Query:"""
                     f"(limit: {self.RATE_LIMIT_MAX_REQUESTS} questions per {self.RATE_LIMIT_WINDOW_SECONDS} seconds)."
                 ),
                 "context_chunks": [],
+                "retrieval_trace": [],
             }
 
         # 1. Reformulate vague follow-up queries into specific standalone queries
@@ -294,7 +295,45 @@ Rewritten Query:"""
         # 3. Generate answer with conversation history (using original query for natural response)
         answer = self.generator.generate_answer(query, retrieved_chunks, chat_history=chat_history, summary=summary)
 
+        # AGENTIC STEP (Corrective RAG): a traditional pipeline would stop here.
+        # Instead, if the first pass came up empty, the pipeline notices its own
+        # failure and autonomously retries once with a widened retrieval net
+        # (more candidates, looser distance threshold) before giving up. The
+        # trace of what was tried is kept so it can be surfaced in the UI —
+        # making the agentic decision visible, not just internal.
+        retrieval_trace = [{
+            "attempt": 1,
+            "top_k": top_k,
+            "distance_threshold": distance_threshold,
+            "chunks_found": len(retrieved_chunks),
+            "outcome": "fallback" if answer == self.generator.FALLBACK_RESPONSE else "answered",
+        }]
+
+        if answer == self.generator.FALLBACK_RESPONSE:
+            widened_top_k = top_k * 3
+            widened_threshold = min(distance_threshold + 0.3, 1.5)
+
+            retry_chunks = self.vector_store.retrieve(
+                query=search_query,
+                top_k=widened_top_k,
+                distance_threshold=widened_threshold
+            )
+            retry_answer = self.generator.generate_answer(query, retry_chunks, chat_history=chat_history, summary=summary)
+
+            retrieval_trace.append({
+                "attempt": 2,
+                "top_k": widened_top_k,
+                "distance_threshold": widened_threshold,
+                "chunks_found": len(retry_chunks),
+                "outcome": "fallback" if retry_answer == self.generator.FALLBACK_RESPONSE else "answered",
+            })
+
+            if retry_answer != self.generator.FALLBACK_RESPONSE:
+                answer = retry_answer
+                retrieved_chunks = retry_chunks
+
         return {
             "answer": answer,
-            "context_chunks": retrieved_chunks
+            "context_chunks": retrieved_chunks,
+            "retrieval_trace": retrieval_trace,
         }
