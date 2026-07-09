@@ -290,3 +290,60 @@ Summary:"""
         except Exception as e:
             print(f"[Summarization] Failed: {e}")
             return ""
+
+    def judge_answer(self, question: str, answer: str, context_text: str, reference: str = None) -> dict:
+        """LLM-as-judge evaluation: scores an answer without needing the heavy
+        RAGAS dependency (which conflicts with this project's langchain_openai
+        version — see evaluate_rag.py for details). Reuses the same LLM backend
+        (OpenRouter/Ollama) already configured for answer generation.
+
+        Returns a dict with faithfulness/relevancy/correctness scores (0.0-1.0)
+        and a short reasoning string. correctness is only included if a
+        reference answer is provided.
+        """
+        import json as _json
+
+        reference_block = f"\nReference Answer (ground truth): {reference}\n" if reference else ""
+        correctness_field = '"correctness": <0.0-1.0>, ' if reference else ""
+        correctness_instructions = (
+            "\n- correctness: does the answer capture the key fact(s) in the Reference Answer? (0.0-1.0)"
+            if reference else ""
+        )
+
+        system_prompt = (
+            "You are a strict, impartial evaluator of RAG (Retrieval-Augmented Generation) system outputs. "
+            "You output ONLY a single JSON object, nothing else — no markdown fences, no commentary."
+        )
+        user_prompt = f"""Evaluate the Answer below against the Context and Question.
+
+Question: {question}
+
+Context (what the system retrieved):
+{context_text}
+
+Answer (what the system generated):
+{answer}
+{reference_block}
+Score these dimensions from 0.0 to 1.0:
+- faithfulness: is every claim in the Answer actually supported by the Context? (1.0 = fully grounded, 0.0 = fabricated/unsupported)
+- relevancy: does the Answer actually address the Question asked? (1.0 = directly on-topic, 0.0 = off-topic){correctness_instructions}
+
+Output ONLY this JSON shape:
+{{"faithfulness": <0.0-1.0>, "relevancy": <0.0-1.0>, {correctness_field}"reasoning": "<one short sentence>"}}"""
+
+        try:
+            if self._is_ollama_enabled():
+                full_prompt = system_prompt + "\n\n" + user_prompt
+                raw = self._generate_with_ollama(full_prompt)
+            else:
+                raw = self._generate_with_openrouter(system_prompt, user_prompt)
+
+            raw = raw.strip()
+            if raw.startswith("```"):
+                raw = raw.strip("`")
+                if raw.lower().startswith("json"):
+                    raw = raw[4:]
+            return _json.loads(raw.strip())
+        except Exception as e:
+            print(f"[Judge] Failed to score answer: {e}")
+            return {"faithfulness": None, "relevancy": None, "reasoning": f"judge error: {e}"}

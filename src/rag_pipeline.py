@@ -6,6 +6,7 @@ from src.chunker import TextChunker
 from src.vector_store import VectorStore
 from src.generator import AnswerGenerator
 from src.context_utils import truncate_history
+from src.observability import get_query_logger, log_query_event
 
 class RAGPipeline:
     """Orchestrates the entire RAG workflow."""
@@ -23,7 +24,7 @@ class RAGPipeline:
     RATE_LIMIT_MAX_REQUESTS = 10
     RATE_LIMIT_WINDOW_SECONDS = 60
 
-    def __init__(self, vector_db_path: str = "./vector_db"):
+    def __init__(self, vector_db_path: str = "./vector_db", username: str = "default"):
         self.chunker = TextChunker(chunk_size=1000, overlap=200)
         self.vector_store = VectorStore(persist_directory=vector_db_path)
         self.generator = AnswerGenerator()
@@ -31,6 +32,9 @@ class RAGPipeline:
         # for an identical (query, recent-history) pair within the same session.
         self._reformulation_cache = {}
         self._request_timestamps = []
+        # Observability: one JSONL log line per query (see src/observability.py)
+        self.username = username
+        self._query_logger = get_query_logger(username)
 
     def _check_rate_limit(self) -> bool:
         """Returns True if this request is within the rate limit, False if it should be rejected."""
@@ -264,13 +268,17 @@ Rewritten Query:"""
             chat_history: Optional list of previous messages for conversation memory.
             summary: Optional rolling summary of older conversation turns (long-term memory).
         """
+        start_time = time.time()
+
         # 0. Handle casual / conversational messages without hitting retrieval
         casual_reply = self._is_casual_message(query)
         if casual_reply:
+            log_query_event(self._query_logger, self.username, query, "casual", (time.time() - start_time) * 1000)
             return {"answer": casual_reply, "context_chunks": [], "retrieval_trace": []}
 
         # 0.5 GUARDRAIL: reject if this user is calling the LLM too frequently
         if not self._check_rate_limit():
+            log_query_event(self._query_logger, self.username, query, "rate_limited", (time.time() - start_time) * 1000)
             return {
                 "answer": (
                     f"You're sending questions too quickly. Please wait a moment and try again "
@@ -331,6 +339,16 @@ Rewritten Query:"""
             if retry_answer != self.generator.FALLBACK_RESPONSE:
                 answer = retry_answer
                 retrieved_chunks = retry_chunks
+
+        best_distance = min((c["distance"] for c in retrieved_chunks), default=None)
+        log_query_event(
+            self._query_logger, self.username, query, "answered", (time.time() - start_time) * 1000,
+            search_query=search_query,
+            chunks_found=len(retrieved_chunks),
+            best_distance=best_distance,
+            fallback=(answer == self.generator.FALLBACK_RESPONSE),
+            retrieval_trace=retrieval_trace,
+        )
 
         return {
             "answer": answer,

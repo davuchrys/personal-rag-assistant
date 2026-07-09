@@ -224,7 +224,7 @@ USERNAME = st.session_state.username
 
 @st.cache_resource
 def get_pipeline(username: str):
-    return RAGPipeline(vector_db_path=f"./vector_db/{username}")
+    return RAGPipeline(vector_db_path=f"./vector_db/{username}", username=username)
 
 pipeline = get_pipeline(USERNAME)
 CHATS_DIR = f"data/chats/{USERNAME}"
