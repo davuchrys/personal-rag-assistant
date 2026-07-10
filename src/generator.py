@@ -2,7 +2,7 @@ import os
 import re
 import requests
 
-from src.context_utils import truncate_history
+from src.context_utils import truncate_history, estimate_tokens
 
 OLLAMA_MODEL = "llama3" # You can also use "phi3" or "mistral"
 
@@ -55,7 +55,10 @@ class AnswerGenerator:
     FALLBACK_RESPONSE = "I could not find enough information in the uploaded documents."
 
     def __init__(self):
-        pass
+        # Cost/token observability: estimated token usage of the most recent
+        # generate_answer() call, read by RAGPipeline for structured logging.
+        # None when no LLM call was made (e.g. no context_chunks at all).
+        self.last_usage = None
 
     def _generate_with_ollama(self, prompt: str) -> str:
         url = "http://localhost:11434/api/generate"
@@ -200,6 +203,7 @@ Remember: If the answer is not in the Context Documents above, say "I could not 
             summary: Optional rolling summary of older conversation turns (long-term memory).
         """
         fallback_response = self.FALLBACK_RESPONSE
+        self.last_usage = None
 
         if not context_chunks:
             return fallback_response
@@ -235,6 +239,17 @@ Remember: If the answer is not in the Context Documents above, say "I could not 
                 answer = self._generate_with_ollama(full_prompt)
             else:
                 answer = self._generate_with_openrouter(system_prompt, user_prompt)
+
+            # Cost/token observability: rough estimate (no real API cost today
+            # since the default model is "openrouter/free", but useful for
+            # usage patterns and if a paid model is configured later).
+            prompt_tokens = estimate_tokens(system_prompt) + estimate_tokens(user_prompt)
+            completion_tokens = estimate_tokens(answer) if answer else 0
+            self.last_usage = {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens,
+            }
 
             if not answer:
                 return fallback_response

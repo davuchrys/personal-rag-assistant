@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 import hashlib
+import html
 import bcrypt
 import streamlit as st
 from dotenv import load_dotenv
@@ -464,7 +465,7 @@ with st.sidebar:
     
     if uploaded_files:
         for f in uploaded_files:
-            st.markdown(f'<div class="file-item">📄 {f.name}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="file-item">📄 {html.escape(f.name)}</div>', unsafe_allow_html=True)
 
         if st.button("Index Documents", use_container_width=True):
             file_paths = []
@@ -475,7 +476,11 @@ with st.sidebar:
                 if file.size > MAX_UPLOAD_SIZE_MB * 1024 * 1024:
                     oversized.append(file.name)
                     continue
-                file_path = os.path.join("data", file.name)
+                # SECURITY: strip any directory components from the uploaded
+                # filename before joining it into a path — an unsanitized
+                # name containing "../" could otherwise write outside data/.
+                safe_name = os.path.basename(file.name)
+                file_path = os.path.join("data", safe_name)
                 with open(file_path, "wb") as f_out:
                     f_out.write(file.getbuffer())
                 file_paths.append(file_path)
@@ -493,7 +498,7 @@ with st.sidebar:
     if indexed_files_db:
         st.markdown('<div class="sidebar-section" style="margin-top: 1rem;">Indexed Files</div>', unsafe_allow_html=True)
         for fname in indexed_files_db:
-            st.markdown(f'<div class="file-item" style="border-left: 3px solid #4caf50;">✓ {fname}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="file-item" style="border-left: 3px solid #4caf50;">✓ {html.escape(fname)}</div>', unsafe_allow_html=True)
             
         if st.button("🗑️ Clear Indexed Data", use_container_width=True):
             try:
@@ -533,7 +538,8 @@ db_count = pipeline.get_document_count()
 indexed_files = pipeline.get_indexed_files()
 files_text = ""
 if indexed_files:
-    files_text = f"<div style='margin-top: 0.75rem; font-size: 1.1rem; color: #64748b;'><strong>📄 Uploaded Files:</strong> {', '.join(indexed_files)}</div>"
+    escaped_files = ', '.join(html.escape(f) for f in indexed_files)
+    files_text = f"<div style='margin-top: 0.75rem; font-size: 1.1rem; color: #64748b;'><strong>📄 Uploaded Files:</strong> {escaped_files}</div>"
 
 st.markdown(f"""
 <div class="app-header">
@@ -553,20 +559,25 @@ for msg in st.session_state.messages:
         if msg["role"] == "user":
             st.write(msg["content"])
         else:
-            # Assistant message with answer + sources
-            st.markdown(f'<div class="chat-answer">{msg["answer"]}</div>', unsafe_allow_html=True)
-            
+            # Assistant message with answer + sources.
+            # SECURITY: answer text may embed quoted document content, and
+            # source filenames come from user uploads — both are escaped
+            # before being interpolated into unsafe_allow_html markdown to
+            # prevent stored XSS. Markdown syntax (bold, lists) still renders
+            # fine since html.escape() only touches <, >, &, ", '.
+            st.markdown(f'<div class="chat-answer">{html.escape(msg["answer"])}</div>', unsafe_allow_html=True)
+
             if msg.get("sources"):
                 st.markdown("---")
-                sources_html = " ".join([f'<span class="source-tag">📄 {s}</span>' for s in msg["sources"]])
+                sources_html = " ".join([f'<span class="source-tag">📄 {html.escape(s)}</span>' for s in msg["sources"]])
                 st.markdown(f"**Sources:** {sources_html}", unsafe_allow_html=True)
-            
+
             # Debug chunks inside the message
             if debug_mode and (msg.get("chunks") or msg.get("retrieval_trace")):
                 with st.expander("Retrieved chunks"):
                     render_retrieval_trace(msg.get("retrieval_trace", []))
                     for i, chunk in enumerate(msg.get("chunks", [])):
-                        filename = chunk['metadata'].get('filename', 'Unknown')
+                        filename = html.escape(chunk['metadata'].get('filename', 'Unknown'))
                         dist = chunk['distance']
                         st.markdown(f'<div class="chunk-meta">Chunk {i+1} · {filename} · distance: {dist:.4f}</div>', unsafe_allow_html=True)
                         st.text(chunk['text'][:500])
@@ -600,19 +611,19 @@ if query := st.chat_input("Ask something from your documents..."):
                 st.warning(answer)
                 sources = []
             else:
-                st.markdown(f'<div class="chat-answer">{answer}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="chat-answer">{html.escape(answer)}</div>', unsafe_allow_html=True)
                 sources = list(set(c['metadata'].get('filename', 'Unknown') for c in chunks))
-                
+
                 if sources:
                     st.markdown("---")
-                    sources_html = " ".join([f'<span class="source-tag">📄 {s}</span>' for s in sources])
+                    sources_html = " ".join([f'<span class="source-tag">📄 {html.escape(s)}</span>' for s in sources])
                     st.markdown(f"**Sources:** {sources_html}", unsafe_allow_html=True)
             
             if debug_mode and (chunks or retrieval_trace):
                 with st.expander("Retrieved chunks"):
                     render_retrieval_trace(retrieval_trace)
                     for i, chunk in enumerate(chunks):
-                        filename = chunk['metadata'].get('filename', 'Unknown')
+                        filename = html.escape(chunk['metadata'].get('filename', 'Unknown'))
                         dist = chunk['distance']
                         st.markdown(f'<div class="chunk-meta">Chunk {i+1} · {filename} · distance: {dist:.4f}</div>', unsafe_allow_html=True)
                         st.text(chunk['text'][:500])

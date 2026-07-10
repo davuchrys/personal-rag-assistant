@@ -302,6 +302,7 @@ Rewritten Query:"""
 
         # 3. Generate answer with conversation history (using original query for natural response)
         answer = self.generator.generate_answer(query, retrieved_chunks, chat_history=chat_history, summary=summary)
+        total_tokens = (self.generator.last_usage or {}).get("total_tokens", 0)
 
         # AGENTIC STEP (Corrective RAG): a traditional pipeline would stop here.
         # Instead, if the first pass came up empty, the pipeline notices its own
@@ -315,6 +316,7 @@ Rewritten Query:"""
             "distance_threshold": distance_threshold,
             "chunks_found": len(retrieved_chunks),
             "outcome": "fallback" if answer == self.generator.FALLBACK_RESPONSE else "answered",
+            "token_usage": self.generator.last_usage,
         }]
 
         if answer == self.generator.FALLBACK_RESPONSE:
@@ -327,6 +329,7 @@ Rewritten Query:"""
                 distance_threshold=widened_threshold
             )
             retry_answer = self.generator.generate_answer(query, retry_chunks, chat_history=chat_history, summary=summary)
+            total_tokens += (self.generator.last_usage or {}).get("total_tokens", 0)
 
             retrieval_trace.append({
                 "attempt": 2,
@@ -334,6 +337,7 @@ Rewritten Query:"""
                 "distance_threshold": widened_threshold,
                 "chunks_found": len(retry_chunks),
                 "outcome": "fallback" if retry_answer == self.generator.FALLBACK_RESPONSE else "answered",
+                "token_usage": self.generator.last_usage,
             })
 
             if retry_answer != self.generator.FALLBACK_RESPONSE:
@@ -348,6 +352,7 @@ Rewritten Query:"""
             best_distance=best_distance,
             fallback=(answer == self.generator.FALLBACK_RESPONSE),
             retrieval_trace=retrieval_trace,
+            total_tokens=total_tokens,
         )
 
         return {
