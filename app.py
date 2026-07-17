@@ -258,7 +258,10 @@ def get_all_chats():
             file_path = os.path.join(CHATS_DIR, filename)
             with open(file_path, "r", encoding="utf-8") as f:
                 try:
-                    messages = json.load(f)
+                    data = json.load(f)
+                    # Same dual-format handling as load_chat: new files are
+                    # {"messages": [...], "summary": {...}}, old ones a plain list.
+                    messages = data.get("messages", []) if isinstance(data, dict) else data
                     if messages:
                         first_msg = next((m["content"] for m in messages if m["role"] == "user"), "Empty Chat")
                         title = first_msg[:20] + "..." if len(first_msg) > 20 else first_msg
