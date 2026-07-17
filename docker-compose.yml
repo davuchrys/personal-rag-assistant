@@ -1,0 +1,27 @@
+services:
+  rag-assistant:
+    build: .
+    container_name: personal-rag-assistant
+    ports:
+      - "8501:8501"
+    # API keys and backend selection live in .env (copy .env.example, never
+    # baked into the image).
+    env_file:
+      - .env
+    environment:
+      # Inside the container "localhost" is the container itself, so when
+      # USE_OLLAMA=true the app must reach Ollama on the host machine instead.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    extra_hosts:
+      # Makes host.docker.internal resolve on Linux too (no-op on Docker Desktop).
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Indexed documents (ChromaDB) and app data (chats, sessions, logs)
+      # survive container rebuilds/restarts.
+      - vector_db:/app/vector_db
+      - app_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  vector_db:
+  app_data:

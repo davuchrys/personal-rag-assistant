@@ -188,7 +188,8 @@ Rewritten Query:"""
 
             if use_ollama:
                 import requests
-                url = "http://localhost:11434/api/generate"
+                base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+                url = f"{base_url}/api/generate"
                 payload = {"model": "llama3", "prompt": reformulation_prompt, "stream": False, "options": {"temperature": 0.0}}
                 response = requests.post(url, json=payload, timeout=30)
                 response.raise_for_status()

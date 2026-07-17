@@ -64,6 +64,22 @@ A Streamlit-based Retrieval-Augmented Generation (RAG) assistant that lets you t
    streamlit run app.py
    ```
 
+## Run with Docker
+
+The easiest way to run the app without installing Python or any dependencies — only [Docker](https://docs.docker.com/get-started/get-docker/) is required.
+
+1. Copy `.env.example` to `.env` and fill in the values — at minimum `OPENROUTER_API_KEY` (or set `USE_OLLAMA=true` if Ollama is running on your machine with the `llama3` model pulled).
+2. Build and start:
+   ```bash
+   docker compose up --build
+   ```
+   The first build takes several minutes (it downloads PyTorch and pre-bakes the embedding model into the image); subsequent starts are fast.
+3. Open http://localhost:8501 in your browser.
+
+Uploaded documents, chat history, and logs persist in named Docker volumes (`vector_db`, `app_data`) across restarts and rebuilds. Stop with `docker compose down` — add `-v` only if you also want to wipe that stored data.
+
+**Ollama note:** inside the container, `localhost` refers to the container itself, so the app is preconfigured (via `OLLAMA_BASE_URL` in `docker-compose.yml`) to reach Ollama on your host machine at `host.docker.internal:11434`. No changes needed.
+
 ## Usage
 1. Sign up or log in (requires Supabase configuration).
 2. Use the sidebar to upload one or multiple documents, then click **Index Documents**.

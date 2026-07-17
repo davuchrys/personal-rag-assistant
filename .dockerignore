@@ -1,0 +1,28 @@
+# Secrets — injected at runtime via docker-compose env_file, never baked in
+.env
+
+# Local runtime state (lives in Docker volumes instead)
+vector_db/
+test_vector_db/
+data/
+
+# Dev environment
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.git
+.gitignore
+.claude
+
+# Docs & test fixtures not needed inside the image
+*.docx
+test.txt
+test_oversized.txt
+README.md
+
+# Docker files themselves
+Dockerfile
+docker-compose.yml
+.dockerignore
+.env.example

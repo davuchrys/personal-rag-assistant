@@ -61,7 +61,10 @@ class AnswerGenerator:
         self.last_usage = None
 
     def _generate_with_ollama(self, prompt: str) -> str:
-        url = "http://localhost:11434/api/generate"
+        # Configurable because inside Docker "localhost" is the container itself;
+        # compose points this at host.docker.internal to reach Ollama on the host.
+        base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+        url = f"{base_url}/api/generate"
         payload = {
             "model": OLLAMA_MODEL,
             "prompt": prompt,
