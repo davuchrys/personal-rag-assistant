@@ -16,13 +16,13 @@ __pycache__/
 .claude
 
 # Docs & test fixtures not needed inside the image
+docs/
 *.docx
 test.txt
 test_oversized.txt
 README.md
 
 # Docker files themselves
-Dockerfile
-docker-compose.yml
+docker/
 .dockerignore
 .env.example

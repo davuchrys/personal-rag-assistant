@@ -1,13 +1,21 @@
+# Explicit project name so the volume/network prefix stays stable no matter
+# where compose is invoked from (folder-derived naming would call it "docker").
+name: personal-rag-assistant
+
 services:
   rag-assistant:
-    build: .
+    build:
+      # Build context is the repo root so COPY picks up the app source;
+      # .dockerignore therefore also lives at the repo root.
+      context: ..
+      dockerfile: docker/Dockerfile
     container_name: personal-rag-assistant
     ports:
       - "8501:8501"
-    # API keys and backend selection live in .env (copy .env.example, never
-    # baked into the image).
+    # API keys and backend selection live in .env at the repo root (copy
+    # .env.example, never baked into the image).
     env_file:
-      - .env
+      - ../.env
     environment:
       # Inside the container "localhost" is the container itself, so when
       # USE_OLLAMA=true the app must reach Ollama on the host machine instead.

@@ -68,15 +68,15 @@ A Streamlit-based Retrieval-Augmented Generation (RAG) assistant that lets you t
 
 The easiest way to run the app without installing Python or any dependencies — only [Docker](https://docs.docker.com/get-started/get-docker/) is required.
 
-1. Copy `.env.example` to `.env` and fill in the values — at minimum `OPENROUTER_API_KEY` (or set `USE_OLLAMA=true` if Ollama is running on your machine with the `llama3` model pulled).
-2. Build and start:
+1. Copy `.env.example` to `.env` (both at the repo root) and fill in the values — at minimum `OPENROUTER_API_KEY` (or set `USE_OLLAMA=true` if Ollama is running on your machine with the `llama3` model pulled).
+2. Build and start (from the repo root):
    ```bash
-   docker compose up --build
+   docker compose -f docker/docker-compose.yml up --build
    ```
    The first build takes several minutes (it downloads PyTorch and pre-bakes the embedding model into the image); subsequent starts are fast.
 3. Open http://localhost:8501 in your browser.
 
-Uploaded documents, chat history, and logs persist in named Docker volumes (`vector_db`, `app_data`) across restarts and rebuilds. Stop with `docker compose down` — add `-v` only if you also want to wipe that stored data.
+Uploaded documents, chat history, and logs persist in named Docker volumes (`vector_db`, `app_data`) across restarts and rebuilds. Stop with `docker compose -f docker/docker-compose.yml down` — add `-v` only if you also want to wipe that stored data.
 
 **Ollama note:** inside the container, `localhost` refers to the container itself, so the app is preconfigured (via `OLLAMA_BASE_URL` in `docker-compose.yml`) to reach Ollama on your host machine at `host.docker.internal:11434`. No changes needed.
 
@@ -108,6 +108,8 @@ Edit the `TEST_CASES` list in the script to match documents you've actually inde
 
 ```
 app.py                   Streamlit UI, auth, session/chat state
+docker/                   Dockerfile + docker-compose.yml (see "Run with Docker")
+docs/                      Weekly reports and concept write-ups (.docx)
 src/
   document_loader.py      Loads PDF/TXT/MD, page-level metadata for PDFs
   chunker.py               Splits documents into overlapping chunks
