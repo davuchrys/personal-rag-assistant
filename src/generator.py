@@ -53,6 +53,16 @@ class AnswerGenerator:
     """Generates answers using OpenRouter (via LangChain) or local Ollama based on retrieved context."""
 
     FALLBACK_RESPONSE = "I could not find enough information in the uploaded documents."
+    QUOTA_RESPONSE = (
+        "The AI service has reached its usage limit for now (free-tier quota). "
+        "Please try again in a few minutes."
+    )
+
+    @staticmethod
+    def _is_quota_error(exc: Exception) -> bool:
+        """True when the LLM call failed because the API quota/rate limit is exhausted."""
+        text = str(exc).lower()
+        return any(marker in text for marker in ("429", "rate limit", "rate-limit", "quota", "insufficient credit"))
 
     def __init__(self):
         # Cost/token observability: estimated token usage of the most recent
@@ -100,6 +110,11 @@ class AnswerGenerator:
                 base_url="https://openrouter.ai/api/v1",
                 model="openrouter/free",
                 temperature=0.0,
+                # Fail fast on exhausted free-tier quota (429): retrying with
+                # backoff can't succeed until the daily limit resets, it only
+                # makes the UI spin for tens of seconds before failing anyway.
+                max_retries=0,
+                timeout=60,
                 default_headers={
                     "HTTP-Referer": "http://localhost:8501",
                     "X-Title": "Personal RAG Assistant"
@@ -270,6 +285,8 @@ Remember: If the answer is not in the Context Documents above, say "I could not 
 
         except Exception as e:
             print(f"Error during generation: {e}")
+            if self._is_quota_error(e):
+                return self.QUOTA_RESPONSE
             return f"An error occurred while generating the answer: {e}"
 
     def summarize_conversation(self, messages: list[dict]) -> str:

@@ -215,6 +215,11 @@ Rewritten Query:"""
                     base_url="https://openrouter.ai/api/v1",
                     model="openrouter/free",
                     temperature=0.0,
+                    # Fail fast on exhausted free-tier quota (429): the default
+                    # 2-retry backoff just makes the user stare at a spinner
+                    # before reformulation falls back to the raw query anyway.
+                    max_retries=0,
+                    timeout=30,
                     default_headers={
                         "HTTP-Referer": "http://localhost:8501",
                         "X-Title": "Personal RAG Assistant"
