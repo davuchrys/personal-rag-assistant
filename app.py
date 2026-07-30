@@ -187,14 +187,17 @@ if "username" not in st.session_state or not st.session_state.username:
                         st.error("Please enter both username and password.")
                     else:
                         users = _load_users()
-                        if u not in users or not _verify_password(login_pass, users[u]):
-                            st.error("Invalid username or password.")
+                        if u not in users:
+                            st.error("Account not found. Please create one in the Sign Up tab first.")
+                        elif not _verify_password(login_pass, users[u]):
+                            st.error("Incorrect password. Please try again.")
                         else:
                             # Transparently migrate legacy SHA256 hashes to bcrypt on successful login
                             if _is_legacy_hash(users[u]):
                                 _update_user_password(u, _hash_password(login_pass))
                             _login_user(u)
                             st.rerun()
+            st.caption("Don't have an account yet? Create one in the **Sign Up** tab above.")
 
         with tab_signup:
             with st.form("signup_form"):
