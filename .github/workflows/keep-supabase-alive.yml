@@ -1,0 +1,22 @@
+# Prevents the Supabase free-tier project from auto-pausing after 7 idle days
+# by making one tiny read query every 3 days. Requires two repository secrets
+# (Settings > Secrets and variables > Actions): SUPABASE_URL and SUPABASE_KEY.
+name: Keep Supabase alive
+
+on:
+  schedule:
+    - cron: "0 1 */3 * *" # 01:00 UTC every 3rd day — well inside the 7-day pause window
+  workflow_dispatch: # allows manual runs from the Actions tab, e.g. before a demo
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query Supabase REST API
+        run: |
+          curl --silent --fail --show-error \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/users?select=username&limit=1" \
+            -H "apikey: ${{ secrets.SUPABASE_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_KEY }}" \
+            --output /dev/null
+          echo "Supabase pinged successfully."
